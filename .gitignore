@@ -1,0 +1,36 @@
+# vendored SurRoL source — installed fresh per env, not tracked
+third_party/
+
+# data + artifacts
+data/
+checkpoints/
+runs/
+wandb/
+*.npz
+*.h5
+*.hdf5
+*.pt
+*.pth
+*.ckpt
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# envs
+.venv/
+venv/
+.env
+
+# editors
+.idea/
+.vscode/
+.DS_Store

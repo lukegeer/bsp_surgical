@@ -1,0 +1,28 @@
+name: bsp
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  # numerics
+  - numpy
+  - scipy
+  - h5py
+  - pyyaml
+  - tqdm
+  - matplotlib
+  # sim
+  - pybullet
+  - opencv
+  - imageio
+  - imageio-ffmpeg
+  - pip:
+      # torch: arm64 macOS build includes MPS backend
+      - torch
+      - torchvision
+      - pytest
+      - pytest-cov
+      - hydra-core
+      - wandb
+      # install SurRoL separately (editable, --no-deps) — see README
