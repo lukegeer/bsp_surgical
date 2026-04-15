@@ -1,6 +1,5 @@
 from typing import Callable
 
-import cv2
 import numpy as np
 
 from bsp_surgical.data.trajectory import Trajectory
@@ -9,6 +8,8 @@ from bsp_surgical.data.trajectory import Trajectory
 def _resize_rgb(frame: np.ndarray, resolution: int) -> np.ndarray:
     if frame.shape[0] == resolution and frame.shape[1] == resolution:
         return frame.astype(np.uint8, copy=False)
+    import cv2  # lazy: cv2 has heavy import side-effects and conflicts when running concurrently
+
     resized = cv2.resize(frame, (resolution, resolution), interpolation=cv2.INTER_AREA)
     return resized.astype(np.uint8, copy=False)
 
