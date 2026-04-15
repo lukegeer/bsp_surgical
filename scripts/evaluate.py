@@ -70,7 +70,7 @@ def _capture_goal_image(env, max_oracle_steps: int) -> np.ndarray:
 def _run_planner(
     env, vae, inverse, planner_fn_at_goal,
     max_steps: int, resolution: int,
-    *, epsilon: float = 0.5,
+    *, epsilon: float = 0.05,
 ) -> tuple[bool, int]:
     """Plan waypoints ONCE, then execute through them sequentially.
 
@@ -93,7 +93,12 @@ def _run_planner(
             if torch.linalg.norm(z_now - w, dim=-1).item() <= epsilon:
                 break
             action = inverse(z_now, w)
-            _obs, _r, done, info = env.step(action.squeeze(0).detach().cpu().numpy())
+            # Jaw dim is a logit; everything else is already ~[-1,1]. Clip
+            # for safety before handing to the env.
+            action_np = action.squeeze(0).detach().cpu().numpy()
+            action_np[-1] = 1.0 if action_np[-1] > 0 else -1.0  # binary jaw
+            action_np[:-1] = np.clip(action_np[:-1], -1.0, 1.0)
+            _obs, _r, done, info = env.step(action_np)
             total_steps += 1
             if info.get("is_success"):
                 return True, total_steps
