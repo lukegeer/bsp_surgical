@@ -35,7 +35,7 @@ from bsp_surgical.inference.planner import (
 
 TASK_REGISTRY = {
     "NeedleReach": ("surrol.tasks.needle_reach_RL", "NeedleReach"),
-    "NeedlePick": ("surrol.tasks.needle_pick_RL", "NeedlePick"),
+    "NeedlePick": ("surrol.tasks.needle_pick_RL_2", "NeedlePickRL"),
 }
 
 
