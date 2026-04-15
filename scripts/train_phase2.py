@@ -42,6 +42,8 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--latent-dim", type=int, default=128)
     parser.add_argument("--resolution", type=int, default=128)
+    parser.add_argument("--backbone", choices=["simple", "resnet18"], default="simple")
+    parser.add_argument("--pretrained", action="store_true", help="ImageNet weights for resnet18")
     parser.add_argument("--kl-weight", type=float, default=0.5)
     parser.add_argument("--jaw-weight", type=float, default=0.01)
     parser.add_argument("--num-workers", type=int, default=0)
@@ -68,7 +70,10 @@ def main() -> None:
           f"{len(dataset._episode_paths)} episodes")
 
     models = Phase2Models(
-        vae=VAE(latent_dim=args.latent_dim, resolution=args.resolution),
+        vae=VAE(
+            latent_dim=args.latent_dim, resolution=args.resolution,
+            backbone=args.backbone, pretrained=args.pretrained,
+        ),
         forward=ForwardDynamics(latent_dim=args.latent_dim, action_dim=5),
         inverse=InverseDynamics(latent_dim=args.latent_dim, action_dim=5),
     ).to(device)

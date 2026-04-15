@@ -48,6 +48,25 @@ def test_vae_reparameterize_is_stochastic_in_train_mode():
     assert not torch.allclose(z1, z2)
 
 
+def test_vae_resnet18_backbone_produces_correct_shapes():
+    vae = VAE(latent_dim=128, resolution=128, backbone="resnet18")
+    x = torch.randn(2, 3, 128, 128)
+
+    recon, mu, logvar = vae(x)
+
+    assert recon.shape == (2, 3, 128, 128)
+    assert mu.shape == (2, 128)
+    assert logvar.shape == (2, 128)
+
+
+def test_vae_resnet18_has_at_least_10M_params():
+    """ResNet-18 backbone alone is ~11M; regression guard that we actually
+    built it and didn't silently fall back to the simple encoder."""
+    vae = VAE(latent_dim=128, resolution=128, backbone="resnet18")
+    params = sum(p.numel() for p in vae.parameters())
+    assert params > 10_000_000, f"expected >10M params, got {params}"
+
+
 def test_vae_supports_64x64_resolution():
     vae = VAE(latent_dim=16, resolution=64)
     x = torch.randn(2, 3, 64, 64)

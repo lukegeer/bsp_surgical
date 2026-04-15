@@ -37,7 +37,11 @@ def main() -> None:
 
     ckpt = torch.load(args.phase2_ckpt, map_location=device, weights_only=False)
     vae_args = ckpt["args"]
-    vae = VAE(latent_dim=vae_args["latent_dim"], resolution=vae_args["resolution"]).to(device)
+    vae = VAE(
+        latent_dim=vae_args["latent_dim"],
+        resolution=vae_args["resolution"],
+        backbone=vae_args.get("backbone", "simple"),
+    ).to(device)
     vae.load_state_dict(ckpt["vae"])
     vae.eval()
     resolution = vae_args["resolution"]

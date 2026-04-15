@@ -53,7 +53,11 @@ def main() -> None:
     # Load frozen Phase 2 VAE
     ckpt = torch.load(args.phase2_ckpt, map_location=device, weights_only=False)
     vae_args = ckpt["args"]
-    vae = VAE(latent_dim=vae_args["latent_dim"], resolution=vae_args["resolution"])
+    vae = VAE(
+        latent_dim=vae_args["latent_dim"],
+        resolution=vae_args["resolution"],
+        backbone=vae_args.get("backbone", "simple"),
+    )
     vae.load_state_dict(ckpt["vae"])
     vae = vae.to(device).eval()
     for p in vae.parameters():

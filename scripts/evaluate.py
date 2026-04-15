@@ -147,7 +147,11 @@ def main() -> None:
     # Load Phase 2
     p2 = torch.load(args.phase2_ckpt, map_location=device, weights_only=False)
     p2a = p2["args"]
-    vae = VAE(latent_dim=p2a["latent_dim"], resolution=p2a["resolution"]).to(device)
+    vae = VAE(
+        latent_dim=p2a["latent_dim"],
+        resolution=p2a["resolution"],
+        backbone=p2a.get("backbone", "simple"),
+    ).to(device)
     vae.load_state_dict(p2["vae"])
     vae.eval()
     inverse = InverseDynamics(latent_dim=p2a["latent_dim"], action_dim=5).to(device)
