@@ -21,6 +21,7 @@ dependencies:
       # torch: arm64 macOS build includes MPS backend
       - torch
       - torchvision
+      - transformers           # DINOv2 backbone via AutoModel
       - pytest
       - pytest-cov
       - hydra-core
