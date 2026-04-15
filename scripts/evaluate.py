@@ -67,25 +67,38 @@ def _capture_goal_image(env, max_oracle_steps: int) -> np.ndarray:
     return final_frame
 
 
-def _run_planner(env, vae, inverse, planner_fn_at_goal, max_steps: int, resolution: int) -> tuple[bool, int]:
-    """Planner callbacks produce waypoints; we execute them.
+def _run_planner(
+    env, vae, inverse, planner_fn_at_goal,
+    max_steps: int, resolution: int,
+    *, epsilon: float = 0.5,
+) -> tuple[bool, int]:
+    """Plan waypoints ONCE, then execute through them sequentially.
 
-    Returns (success, total_steps).
+    For each waypoint in near-to-far order: take actions driven by the
+    inverse model until latent is within epsilon of that waypoint OR a
+    per-waypoint step cap is reached, then move to the next waypoint.
     """
+    # Plan once from the initial encoded state
+    z_now_init = _encode(vae, _resize(env.render("rgb_array"), resolution))
+    waypoints = planner_fn_at_goal(z_now_init)
+
     total_steps = 0
-    for _ in range(max_steps):
-        z_now = _encode(vae, _resize(env.render("rgb_array"), resolution))
-        # The planner_fn_at_goal closes over z_goal already; pass only z_now.
-        waypoints = planner_fn_at_goal(z_now)
-        # Step once toward the first waypoint
-        target = waypoints[0]
-        action = inverse(z_now, target)
-        obs, _r, done, info = env.step(action.squeeze(0).detach().cpu().numpy())
-        total_steps += 1
-        if info.get("is_success"):
-            return True, total_steps
-        if done:
-            return False, total_steps
+    steps_per_wp = max(1, max_steps // len(waypoints))
+
+    for w in waypoints:
+        for _ in range(steps_per_wp):
+            if total_steps >= max_steps:
+                return False, total_steps
+            z_now = _encode(vae, _resize(env.render("rgb_array"), resolution))
+            if torch.linalg.norm(z_now - w, dim=-1).item() <= epsilon:
+                break
+            action = inverse(z_now, w)
+            _obs, _r, done, info = env.step(action.squeeze(0).detach().cpu().numpy())
+            total_steps += 1
+            if info.get("is_success"):
+                return True, total_steps
+            if done:
+                return False, total_steps
     return False, total_steps
 
 
