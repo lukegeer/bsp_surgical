@@ -1,11 +1,11 @@
 # vendored SurRoL source — installed fresh per env, not tracked
 third_party/
 
-# data + artifacts
-data/
-checkpoints/
-runs/
-wandb/
+# data + artifacts (anchored to repo root — don't match src/bsp_surgical/data/)
+/data/
+/checkpoints/
+/runs/
+/wandb/
 *.npz
 *.h5
 *.hdf5
