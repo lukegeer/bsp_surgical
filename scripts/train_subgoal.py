@@ -43,6 +43,11 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--hidden", type=int, default=1024)
+    parser.add_argument("--random-windows", action="store_true",
+                        help="Sample random windows (a,c) per episode per step instead of the "
+                             "fixed (0, T/4, T/2, T) quadruple — gives the MLP many more triples.")
+    parser.add_argument("--min-span", type=int, default=4)
+    parser.add_argument("--weight-decay", type=float, default=0.0)
     parser.add_argument("--min-transitions", type=int, default=3)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", default="auto")
@@ -55,7 +60,10 @@ def main() -> None:
     print(f"device: {device}")
 
     dataset = FeatureSubgoalDataset(
-        args.data_dir, args.feature_dir, min_transitions=args.min_transitions,
+        args.data_dir, args.feature_dir,
+        min_transitions=args.min_transitions,
+        random_windows=args.random_windows,
+        min_span=args.min_span,
     )
     feature_dim = dataset.quadruples[0].shape[-1]
     print(f"dataset: {len(dataset)} episodes, feature_dim={feature_dim}")
@@ -64,7 +72,7 @@ def main() -> None:
 
     mlp = SubgoalGenerator(latent_dim=feature_dim, hidden=args.hidden).to(device)
     print(f"trainable params: {sum(p.numel() for p in mlp.parameters()):,}")
-    optimizer = torch.optim.AdamW(mlp.parameters(), lr=args.lr)
+    optimizer = torch.optim.AdamW(mlp.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
     history: list[dict] = []
     step = 0

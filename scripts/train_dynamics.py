@@ -44,6 +44,11 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--hidden", type=int, default=1024)
+    parser.add_argument("--max-step-jump", type=int, default=1,
+                        help="Train inverse on (z_t, z_{t+k}) with k randomly in [1, K]. "
+                             "K=1 is pure consecutive-frame training; larger K helps the "
+                             "inverse model handle eval-time long-jump targets.")
+    parser.add_argument("--weight-decay", type=float, default=0.0)
     parser.add_argument("--jaw-weight", type=float, default=0.01)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", default="auto")
@@ -55,7 +60,9 @@ def main() -> None:
     device = _resolve_device(args.device)
     print(f"device: {device}")
 
-    dataset = FeatureTransitionDataset(args.data_dir, args.feature_dir)
+    dataset = FeatureTransitionDataset(
+        args.data_dir, args.feature_dir, max_step_jump=args.max_step_jump,
+    )
     # Probe feature dim from one sample
     z0, _, _ = dataset[0]
     feature_dim = z0.shape[0]
@@ -68,7 +75,7 @@ def main() -> None:
 
     params = list(fwd.parameters()) + list(inv.parameters())
     print(f"trainable params: {sum(p.numel() for p in params):,}")
-    optimizer = torch.optim.AdamW(params, lr=args.lr)
+    optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.weight_decay)
 
     history: list[dict] = []
     step = 0

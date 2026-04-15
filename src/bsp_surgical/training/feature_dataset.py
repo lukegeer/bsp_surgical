@@ -21,9 +21,20 @@ def _load_features(feature_path: Path) -> np.ndarray:
 
 
 class FeatureTransitionDataset(Dataset):
-    """For each transition t, yields (z_t, a_t, z_{t+1})."""
+    """For each transition t, yields (z_t, a_t, z_{t+k}) where k is 1 by
+    default (consecutive frames) or randomly sampled in [1, max_step_jump]
+    when max_step_jump > 1.
 
-    def __init__(self, raw_dir: Path, feature_dir: Path):
+    The multi-step variant teaches the inverse model to take action a_t
+    when the *target* is k steps ahead — not just one step ahead. This
+    closes the train/test gap: at eval time, waypoints are far from the
+    current state, and a k=1-only inverse model overshoots and oscillates.
+    The action label stays a_t (the correct *next* action)."""
+
+    def __init__(self, raw_dir: Path, feature_dir: Path, max_step_jump: int = 1):
+        if max_step_jump < 1:
+            raise ValueError(f"max_step_jump must be >= 1, got {max_step_jump}")
+        self.max_step_jump = max_step_jump
         raw_dir = Path(raw_dir)
         feature_dir = Path(feature_dir)
         raw_paths = sorted(raw_dir.glob("ep_*.npz"))
@@ -62,21 +73,37 @@ class FeatureTransitionDataset(Dataset):
         offset = idx - self._episode_starts[ep_idx]
         feats = self._features[ep_idx]
         actions = self._actions[ep_idx]
+        T = len(actions)  # num transitions
+        if self.max_step_jump == 1 or T - offset <= 1:
+            k = 1
+        else:
+            k = int(np.random.randint(1, min(self.max_step_jump, T - offset) + 1))
         return (
             torch.from_numpy(feats[offset]),
             torch.from_numpy(actions[offset]),
-            torch.from_numpy(feats[offset + 1]),
+            torch.from_numpy(feats[offset + k]),
         )
 
 
 class FeatureSubgoalDataset(Dataset):
-    """For each episode, yields (z_start, z_quarter, z_mid, z_end)."""
+    """For each episode, yields (z_start, z_quarter, z_mid, z_end).
+
+    Two modes:
+      - random_windows=False (default): fixed quadruple at indices
+        (0, T/4, T/2, T). Same as before — one training example per episode.
+      - random_windows=True: at each __getitem__ call, sample a random
+        window (a, c) with c-a >= min_span, then midpoint m = (a+c)//2,
+        quarter q = (a+m)//2. This gives many more distinct training
+        triples, which the fixed-index version lacks and the MLP needs
+        to actually learn a generalizable midpoint function."""
 
     def __init__(
         self,
         raw_dir: Path,
         feature_dir: Path,
         min_transitions: int = 3,
+        random_windows: bool = False,
+        min_span: int = 4,
     ):
         raw_dir = Path(raw_dir)
         feature_dir = Path(feature_dir)
@@ -84,8 +111,11 @@ class FeatureSubgoalDataset(Dataset):
         if not raw_paths:
             raise FileNotFoundError(f"no episodes at {raw_dir}")
 
+        self.random_windows = random_windows
+        self.min_span = min_span
         self.quadruples: list[torch.Tensor] = []
         self.episode_indices: list[tuple[int, int, int, int]] = []
+        self._full_features: list[np.ndarray] = []
         for raw_path in raw_paths:
             feat_path = feature_dir / raw_path.name
             if not feat_path.exists():
@@ -96,15 +126,38 @@ class FeatureSubgoalDataset(Dataset):
             T = traj.num_transitions
             if T < min_transitions:
                 continue
-            idx = (0, T // 4, T // 2, T)
             feats = _load_features(feat_path)
-            self.quadruples.append(torch.from_numpy(feats[list(idx)]))
-            self.episode_indices.append(idx)
+            if random_windows:
+                # need at least one valid window of size >= min_span
+                if T < min_span:
+                    continue
+                self._full_features.append(feats)
+                self.episode_indices.append((0, 0, 0, 0))  # placeholder
+            else:
+                idx = (0, T // 4, T // 2, T)
+                self.quadruples.append(torch.from_numpy(feats[list(idx)]))
+                self.episode_indices.append(idx)
 
     def __len__(self) -> int:
+        if self.random_windows:
+            return len(self._full_features)
         return len(self.quadruples)
 
     def __getitem__(self, idx: int):
+        if self.random_windows:
+            feats = self._full_features[idx]
+            T = len(feats) - 1  # num transitions
+            span = int(np.random.randint(self.min_span, T + 1))
+            a = int(np.random.randint(0, T - span + 1))
+            c = a + span
+            m = (a + c) // 2
+            q = (a + m) // 2
+            return (
+                torch.from_numpy(feats[a]),
+                torch.from_numpy(feats[q]),
+                torch.from_numpy(feats[m]),
+                torch.from_numpy(feats[c]),
+            )
         q = self.quadruples[idx]
         return q[0], q[1], q[2], q[3]
 
