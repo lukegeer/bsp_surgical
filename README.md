@@ -26,17 +26,27 @@ Single conda env, Python 3.10, arm64 macOS + MPS. SurRoL's `setup.py` lists
 conda env create -f envs/bsp.yml
 conda activate bsp
 
-# install SurRoL editable, without its heavy deps (panda3d/kivymd/rtb).
-# We install only what NeedleReach actually imports.
-pip install -e third_party/SurRoL/Benchmark/state_based --no-deps
+# clone, patch (macOS EGL guard), and install SurRoL editable --no-deps
+bash scripts/setup_surrol.sh
 
 # install this project
 pip install -e .
 ```
 
-If a SurRoL import blows up for a missing module, pip-install that module
-individually. We skip `panda3d==1.10.11` (no arm64 wheel), `kivymd`, and
-`roboticstoolbox-python` unless something we actually use needs them.
+`scripts/setup_surrol.sh` is idempotent — safe to re-run. It skips
+`panda3d==1.10.11` (no arm64 wheel) and `kivymd` (unused for NeedleReach)
+and pins `numpy<2` for ABI compatibility with `roboticstoolbox-python`.
+
+## Phase 1: collect data
+
+```
+python scripts/collect.py --task NeedleReach --num-episodes 500 \
+    --max-steps 100 --resolution 128 --seed 0 \
+    --out-dir data/needle_reach
+```
+
+Failures are dropped by default (`--keep-failures` to retain). Each episode
+is saved as `data/needle_reach/ep_NNNNN.npz`.
 
 ## Status
 
