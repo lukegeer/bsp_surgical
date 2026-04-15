@@ -43,6 +43,8 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--amp", action="store_true",
+                        help="Use bf16 autocast for encoder forward (MPS-safe, ~2x faster).")
     args = parser.parse_args()
 
     device = _resolve_device(args.device)
@@ -63,8 +65,12 @@ def main() -> None:
         if out_path.exists() and not args.overwrite:
             continue
         traj = load_trajectory(path)
-        features = encoder.encode_numpy_frames(traj.images, batch_size=args.batch_size)
-        np.savez_compressed(out_path, features=features.numpy().astype(np.float32))
+        if args.amp:
+            with torch.autocast(device_type=device.type, dtype=torch.bfloat16):
+                features = encoder.encode_numpy_frames(traj.images, batch_size=args.batch_size)
+        else:
+            features = encoder.encode_numpy_frames(traj.images, batch_size=args.batch_size)
+        np.savez_compressed(out_path, features=features.float().numpy().astype(np.float32))
         total_frames += len(traj.images)
 
         if (i + 1) % 25 == 0 or i == len(paths) - 1:

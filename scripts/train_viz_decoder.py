@@ -92,6 +92,8 @@ def main() -> None:
     parser.add_argument("--device", default="auto")
     parser.add_argument("--log-every", type=int, default=100)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--amp", action="store_true",
+                        help="bf16 autocast for forward (keeps grads in fp32)")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -120,8 +122,11 @@ def main() -> None:
         for feat, img in loader:
             feat = feat.to(device)
             img = img.to(device)
-            pred = decoder(feat)
-            loss = F.mse_loss(pred, img)
+            ctx = torch.autocast(device_type=device.type, dtype=torch.bfloat16) if args.amp \
+                else torch.autocast(device_type=device.type, enabled=False)
+            with ctx:
+                pred = decoder(feat)
+                loss = F.mse_loss(pred, img)
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(decoder.parameters(), 1.0)

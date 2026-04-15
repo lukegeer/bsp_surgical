@@ -65,7 +65,7 @@ def main() -> None:
         random_windows=args.random_windows,
         min_span=args.min_span,
     )
-    feature_dim = dataset.quadruples[0].shape[-1]
+    feature_dim = dataset[0][0].shape[-1]  # sample any item; all feature tensors are (feature_dim,)
     print(f"dataset: {len(dataset)} episodes, feature_dim={feature_dim}")
 
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
