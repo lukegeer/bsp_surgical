@@ -70,10 +70,16 @@ def train_step(
     *,
     kl_weight: float = 0.5,
     jaw_weight: float = 0.01,
+    grad_clip: float | None = 1.0,
 ) -> dict[str, float]:
     models.train()
     optimizer.zero_grad(set_to_none=True)
     losses = compute_phase2_losses(models, batch, kl_weight=kl_weight, jaw_weight=jaw_weight)
     losses["total"].backward()
+    if grad_clip is not None:
+        params = (list(models.vae.parameters())
+                  + list(models.forward.parameters())
+                  + list(models.inverse.parameters()))
+        torch.nn.utils.clip_grad_norm_(params, grad_clip)
     optimizer.step()
     return {k: v.item() for k, v in losses.items()}

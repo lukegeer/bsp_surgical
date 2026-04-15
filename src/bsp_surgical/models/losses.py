@@ -24,8 +24,11 @@ def inverse_dynamics_loss(
 ) -> torch.Tensor:
     """Smooth-L1 on the first (action_dim - 1) continuous dims;
     BCE-with-logits on the final "jaw" dim."""
-    continuous_pred, jaw_pred = a_pred[..., :-1], a_pred[..., -1]
-    continuous_target, jaw_target = a_target[..., :-1], a_target[..., -1]
+    # .contiguous() is required for MPS; slice views can have non-standard strides.
+    continuous_pred = a_pred[..., :-1].contiguous()
+    jaw_pred = a_pred[..., -1].contiguous()
+    continuous_target = a_target[..., :-1].contiguous()
+    jaw_target = a_target[..., -1].contiguous()
 
     continuous_loss = F.smooth_l1_loss(continuous_pred, continuous_target)
     jaw_loss = F.binary_cross_entropy_with_logits(jaw_pred, jaw_target)

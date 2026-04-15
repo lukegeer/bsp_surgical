@@ -6,6 +6,7 @@ Example:
 """
 import argparse
 import json
+import math
 import time
 from pathlib import Path
 
@@ -90,9 +91,11 @@ def main() -> None:
                 models, optimizer, batch,
                 kl_weight=args.kl_weight, jaw_weight=args.jaw_weight,
             )
-            for k, v in losses.items():
-                epoch_losses[k] += v
-            n_batches += 1
+            clean = all(not (math.isnan(v) or math.isinf(v)) for v in losses.values())
+            if clean:
+                for k, v in losses.items():
+                    epoch_losses[k] += v
+                n_batches += 1
             step += 1
             if step % args.log_every == 0:
                 dt = time.time() - t_start
