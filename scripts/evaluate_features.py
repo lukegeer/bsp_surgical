@@ -113,8 +113,9 @@ def _run_planner(
                 break
             action = inverse(z_now, w)
             a = action.squeeze(0).detach().cpu().numpy()
-            a[-1] = 1.0 if a[-1] > 0 else -1.0  # binary jaw
-            a[:-1] = np.clip(a[:-1], -1.0, 1.0)
+            # Oracle outputs continuous jaw in [-0.5, 0.5] — do not binarize.
+            # Just clip every dim to the valid env range.
+            a = np.clip(a, -1.0, 1.0)
             _obs, _r, done, info = env.step(a)
             total += 1
             if info.get("is_success"):
