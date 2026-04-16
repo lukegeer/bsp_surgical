@@ -30,6 +30,7 @@ class BackboneSpec:
 
 _BACKBONES: dict[str, BackboneSpec] = {
     "dinov2-base": BackboneSpec("facebook/dinov2-base", 768, 224),
+    "dinov2-base-448": BackboneSpec("facebook/dinov2-base", 768, 448),
     "dinov2-small": BackboneSpec("facebook/dinov2-small", 384, 224),
 }
 
@@ -80,12 +81,17 @@ class PretrainedEncoder:
 
     @torch.inference_mode()
     def __call__(self, images: torch.Tensor) -> torch.Tensor:
-        """images: (B, 3, H, W) float in [0, 1] — returns (B, feature_dim)
-        CLS-token features on the same device."""
+        """images: (B, 3, H, W) float in [0, 1] — returns (B, feature_dim).
+
+        Uses mean of patch tokens (skipping CLS) rather than CLS alone.
+        Patch-mean preserves spatial layout information that CLS collapses
+        into a single global summary — critical for sub-mm precision tasks
+        like surgical grasping where "gripper is 0.5mm left of needle"
+        must be distinguishable from "gripper is aligned for grasp"."""
         images = images.to(self.device)
         preprocessed = preprocess_rgb_batch(images, self.spec.input_size)
         out = self.model(preprocessed)
-        return out.last_hidden_state[:, 0]  # CLS token
+        return out.last_hidden_state[:, 1:].mean(dim=1)  # avg patch tokens (skip CLS)
 
     def encode_numpy_frames(self, frames, batch_size: int = 32) -> torch.Tensor:
         """Convenience: take a numpy array of shape (N, H, W, 3) uint8 and
