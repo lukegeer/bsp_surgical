@@ -17,6 +17,7 @@ from bsp_surgical.data.io import save_trajectory
 TASK_REGISTRY = {
     "NeedleReach": ("surrol.tasks.needle_reach_RL", "NeedleReach"),
     "NeedlePick": ("surrol.tasks.needle_pick_RL_2", "NeedlePickRL"),
+    "GauzeRetrieve": ("surrol.tasks.gauze_retrieve_RL", "GauzeRetrieve"),
 }
 
 

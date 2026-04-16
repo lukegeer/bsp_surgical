@@ -1,0 +1,30 @@
+{
+  "none": {
+    "success_rate": 0.0,
+    "mean_steps": 100.0,
+    "per_episode_success": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ],
+    "per_episode_steps": [
+      100,
+      100,
+      100,
+      100,
+      100,
+      100,
+      100,
+      100,
+      100,
+      100
+    ]
+  }
+}

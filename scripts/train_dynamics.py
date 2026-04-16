@@ -52,6 +52,9 @@ def main() -> None:
                              "K=1 is pure consecutive-frame training; larger K helps the "
                              "inverse model handle eval-time long-jump targets.")
     parser.add_argument("--weight-decay", type=float, default=0.0)
+    parser.add_argument("--with-proprio", action="store_true",
+                        help="Concat trajectory.proprioception to inverse model input. "
+                             "Requires episodes collected with proprio.")
     parser.add_argument("--jaw-weight", type=float, default=0.01)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", default="auto")
@@ -67,7 +70,9 @@ def main() -> None:
         args.data_dir, args.feature_dir,
         max_step_jump=args.max_step_jump,
         chunk_size=args.chunk_size,
+        with_proprio=args.with_proprio,
     )
+    proprio_dim = dataset.proprio_dim
     # Probe feature dim from one sample
     z0, _, _ = dataset[0]
     feature_dim = z0.shape[0]
@@ -78,8 +83,9 @@ def main() -> None:
     fwd = ForwardDynamics(latent_dim=feature_dim, action_dim=5, hidden=args.hidden).to(device)
     inv = InverseDynamics(
         latent_dim=feature_dim, action_dim=5, hidden=args.hidden,
-        chunk_size=args.chunk_size,
+        chunk_size=args.chunk_size, proprio_dim=proprio_dim,
     ).to(device)
+    print(f"inverse proprio_dim={proprio_dim}")
 
     params = list(fwd.parameters()) + list(inv.parameters())
     print(f"trainable params: {sum(p.numel() for p in params):,}")
@@ -94,13 +100,17 @@ def main() -> None:
         ep_fwd = ep_inv = 0.0
         n = 0
         for batch in loader:
-            z_t, a, z_next = (t.to(device) for t in batch)
-            # forward dynamics always operates on the first action of the chunk
+            batch = [t.to(device) for t in batch]
+            if args.with_proprio:
+                z_t, a, z_next, p_t = batch
+            else:
+                z_t, a, z_next = batch
+                p_t = None
             a_first = a if a.dim() == 2 else a[:, 0]
             delta_z_pred = fwd(z_t, a_first)
             z_next_pred = z_t + delta_z_pred
             loss_fwd = forward_dynamics_loss(z_next_pred, z_next)
-            a_pred = inv(z_t, z_next)
+            a_pred = inv(z_t, z_next, proprio=p_t)
             loss_inv = inverse_dynamics_loss(a_pred, a, jaw_weight=args.jaw_weight)
             loss = loss_fwd + loss_inv
 
@@ -133,6 +143,7 @@ def main() -> None:
         "feature_dim": feature_dim,
         "hidden": args.hidden,
         "chunk_size": args.chunk_size,
+        "proprio_dim": proprio_dim,
         "args": vars(args) | {
             "data_dir": str(args.data_dir),
             "feature_dir": str(args.feature_dir),

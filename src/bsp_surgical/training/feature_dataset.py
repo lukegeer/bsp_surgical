@@ -39,6 +39,7 @@ class FeatureTransitionDataset(Dataset):
         feature_dir: Path,
         max_step_jump: int = 1,
         chunk_size: int = 1,
+        with_proprio: bool = False,
     ):
         if max_step_jump < 1:
             raise ValueError(f"max_step_jump must be >= 1, got {max_step_jump}")
@@ -46,6 +47,8 @@ class FeatureTransitionDataset(Dataset):
             raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
         self.max_step_jump = max_step_jump
         self.chunk_size = chunk_size
+        self.with_proprio = with_proprio
+        self._proprios: list[np.ndarray] = []
         raw_dir = Path(raw_dir)
         feature_dir = Path(feature_dir)
         raw_paths = sorted(raw_dir.glob("ep_*.npz"))
@@ -70,9 +73,16 @@ class FeatureTransitionDataset(Dataset):
                 )
             self._features.append(feats)
             self._actions.append(traj.actions)
+            if self.with_proprio:
+                if traj.proprioception is None:
+                    raise ValueError(
+                        f"{raw_path.name} has no proprioception, but with_proprio=True"
+                    )
+                self._proprios.append(traj.proprioception.astype(np.float32))
             self._episode_starts.append(total)
             total += traj.num_transitions
         self._total = total
+        self.proprio_dim = self._proprios[0].shape[-1] if self._proprios else 0
 
     def __len__(self) -> int:
         return self._total

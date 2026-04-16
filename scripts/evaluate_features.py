@@ -36,6 +36,7 @@ from bsp_surgical.inference.planner import (
 TASK_REGISTRY = {
     "NeedleReach": ("surrol.tasks.needle_reach_RL", "NeedleReach"),
     "NeedlePick": ("surrol.tasks.needle_pick_RL_2", "NeedlePickRL"),
+    "GauzeRetrieve": ("surrol.tasks.gauze_retrieve_RL", "GauzeRetrieve"),
 }
 
 
@@ -113,21 +114,28 @@ def plan_subgoals_forward(
 
 
 def _run_planner(
-    env, encoder, inverse, plan_fn,
+    env, encoder, inverse, plan_fn, last_obs,
     *, max_steps: int, epsilon: float,
 ) -> tuple[bool, int]:
     z_now_init = _encode_frame(encoder, env.render("rgb_array"))
     waypoints = plan_fn(z_now_init)
     steps_per_wp = max(1, max_steps // len(waypoints))
     chunk_size = getattr(inverse, "chunk_size", 1)
+    proprio_dim = getattr(inverse, "proprio_dim", 0)
     total = 0
+    current_obs = last_obs
     for w in waypoints:
         steps_this_wp = 0
         while steps_this_wp < steps_per_wp and total < max_steps:
             z_now = _encode_frame(encoder, env.render("rgb_array"))
             if torch.linalg.norm(z_now - w, dim=-1).item() <= epsilon:
                 break
-            action = inverse(z_now, w)
+            p_now = None
+            if proprio_dim > 0 and isinstance(current_obs, dict) and "observation" in current_obs:
+                p_now = torch.from_numpy(
+                    np.asarray(current_obs["observation"], dtype=np.float32)
+                ).unsqueeze(0).to(z_now.device)
+            action = inverse(z_now, w, proprio=p_now) if proprio_dim > 0 else inverse(z_now, w)
             if chunk_size > 1:
                 chunk_np = action.squeeze(0).detach().cpu().numpy()  # (K, action_dim)
             else:
@@ -136,7 +144,7 @@ def _run_planner(
             # Execute the whole chunk (or until success / done / step budget)
             for a_step in chunk_np:
                 a = np.clip(a_step, -1.0, 1.0)
-                _obs, _r, done, info = env.step(a)
+                current_obs, _r, done, info = env.step(a)
                 total += 1
                 steps_this_wp += 1
                 if info.get("is_success"):
@@ -185,13 +193,14 @@ def main() -> None:
     # inverse dynamics
     dyn = torch.load(args.dynamics_ckpt, map_location=device, weights_only=False)
     chunk_size = dyn.get("chunk_size", 1)
+    proprio_dim = dyn.get("proprio_dim", 0)
     inverse = InverseDynamics(
         latent_dim=dyn["feature_dim"], action_dim=5, hidden=dyn["hidden"],
-        chunk_size=chunk_size,
+        chunk_size=chunk_size, proprio_dim=proprio_dim,
     ).to(device)
     inverse.load_state_dict(dyn["inverse"])
     inverse.eval()
-    print(f"inverse chunk_size={chunk_size}")
+    print(f"inverse chunk_size={chunk_size}  proprio_dim={proprio_dim}")
 
     # subgoal
     sg_ckpt = torch.load(args.subgoal_ckpt, map_location=device, weights_only=False)
@@ -218,7 +227,7 @@ def main() -> None:
             goal_frame = _capture_goal_image(env, args.max_oracle_steps, crop_box=crop_box)
 
             np.random.seed(args.seed + i)
-            env.reset()
+            reset_obs = env.reset()
             z_goal = _encode_frame(encoder, goal_frame)
 
             if planner_name == "backward":
@@ -231,7 +240,7 @@ def main() -> None:
                 fn = lambda z_now, z_goal=z_goal: plan_no_subgoals(z_now, z_goal)
 
             success, steps = _run_planner(
-                env, encoder, inverse, fn,
+                env, encoder, inverse, fn, reset_obs,
                 max_steps=args.max_steps, epsilon=args.epsilon,
             )
             successes.append(success)
