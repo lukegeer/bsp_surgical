@@ -86,22 +86,26 @@ class FeatureTransitionDataset(Dataset):
         actions = self._actions[ep_idx]
         T = len(actions)
 
-        # chunk of `chunk_size` consecutive actions, padded by repeating the
-        # final action if we'd run past the end of the episode.
         if self.chunk_size == 1:
+            # single-step classic inverse: (z_t, a_t, z_{t+k})
             action_out = torch.from_numpy(actions[offset])
+            if self.max_step_jump == 1 or T - offset <= 1:
+                k = 1
+            else:
+                k = int(np.random.randint(1, min(self.max_step_jump, T - offset) + 1))
         else:
-            end = min(offset + self.chunk_size, T)
-            chunk = actions[offset:end]
+            # Chunked inverse: target is the frame after the full chunk so
+            # the model sees (z_t, z_{t+K}) and learns to emit the K
+            # actions that bridge them. Final-episode chunks are padded
+            # with the last action; k reflects how many real actions
+            # exist so target stays self-consistent.
+            real_end = min(offset + self.chunk_size, T)
+            chunk = actions[offset:real_end]
             if len(chunk) < self.chunk_size:
                 pad = np.tile(chunk[-1:], (self.chunk_size - len(chunk), 1))
                 chunk = np.concatenate([chunk, pad], axis=0)
             action_out = torch.from_numpy(chunk)
-
-        if self.max_step_jump == 1 or T - offset <= 1:
-            k = 1
-        else:
-            k = int(np.random.randint(1, min(self.max_step_jump, T - offset) + 1))
+            k = real_end - offset
         return (
             torch.from_numpy(feats[offset]),
             action_out,

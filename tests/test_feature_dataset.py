@@ -55,15 +55,17 @@ def test_feature_transition_dataset_preserves_transition_identity(tmp_path):
 
 
 def test_feature_transition_dataset_chunk_size_returns_k_actions(tmp_path):
-    raw, feat, _features, actions = _write_pair(tmp_path, 0, num_transitions=6, feature_dim=8)
+    raw, feat, features, actions = _write_pair(tmp_path, 0, num_transitions=6, feature_dim=8)
 
     ds = FeatureTransitionDataset(raw, feat, chunk_size=3)
-    z_t, chunk, z_next = ds[1]
+    z_t, chunk, z_target = ds[1]
 
     assert chunk.shape == (3, 5)
     # actions[1], actions[2], actions[3] should be the chunk
     import numpy as np
     assert np.allclose(chunk.numpy(), actions[1:4])
+    # target state should be z_{offset + chunk_size} = z_4 (end of the chunk)
+    assert np.allclose(z_target.numpy(), features[4])
 
 
 def test_feature_transition_dataset_chunk_pads_with_final_action_at_episode_end(tmp_path):
