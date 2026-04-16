@@ -55,6 +55,10 @@ def main() -> None:
     saved, failed, total_t = 0, 0, 0
     t_start = time.time()
     for ep in range(args.num_episodes):
+        path = args.out_dir / f"ep_{ep:05d}.npz"
+        if path.exists():
+            # Resumption: file already saved; don't waste CPU re-collecting.
+            continue
         crop_box = tuple(args.crop) if args.crop else None
         traj = collect_episode(
             env,
@@ -70,7 +74,6 @@ def main() -> None:
             failed += 1
             continue
 
-        path = args.out_dir / f"ep_{ep:05d}.npz"
         save_trajectory(traj, path)
         saved += 1
         total_t += traj.num_transitions
