@@ -121,10 +121,9 @@ def _run_planner(
                 break
             action = inverse(z_now, w)
             if chunk_size > 1:
-                # shape (1, K, action_dim) -> (K, action_dim)
-                chunk_np = action.squeeze(0).detach().cpu().numpy()
+                chunk_np = action.squeeze(0).detach().cpu().numpy()  # (K, action_dim)
             else:
-                chunk_np = action.detach().cpu().numpy()[None]  # (1, action_dim)
+                chunk_np = action.squeeze(0).detach().cpu().numpy().reshape(1, -1)  # (1, action_dim)
 
             # Execute the whole chunk (or until success / done / step budget)
             for a_step in chunk_np:
