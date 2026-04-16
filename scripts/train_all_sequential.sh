@@ -46,15 +46,13 @@ train_task() {
     log "=== $task_label DONE ==="
 }
 
-# Per-task sanity models (optional — each task trained on its own data)
+# Reach-only sanity check (already trained earlier, will skip if ckpt exists)
 wait_for_data data/needle_reach_sd 500
 train_task checkpoints/reach_sd NeedleReach data/needle_reach_sd
 
-wait_for_data data/needle_pick_sd 500
-train_task checkpoints/pick_sd NeedlePick data/needle_pick_sd
-
 # M_simple: the compositional model — jointly trained on reach + pick. This is
-# the model we evaluate zero-shot on GauzeRetrieve in the compositional test.
+# the model evaluated zero-shot on GauzeRetrieve.
+wait_for_data data/needle_pick_sd 500
 train_task checkpoints/simple_sd "M_simple (reach+pick JOINT)" \
     data/needle_reach_sd data/needle_pick_sd
 
