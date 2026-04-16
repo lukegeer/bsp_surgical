@@ -3,3 +3,30 @@ Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst othe
 Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
 Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
 See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+[   25/500] saved=25 failed=0 transitions=471 (0.41 ep/s, 7.7 t/s)
+[   50/500] saved=50 failed=0 transitions=942 (0.41 ep/s, 7.7 t/s)
+[   75/500] saved=75 failed=0 transitions=1431 (0.41 ep/s, 7.7 t/s)
+[  100/500] saved=100 failed=0 transitions=1926 (0.40 ep/s, 7.7 t/s)
+[  125/500] saved=125 failed=0 transitions=2393 (0.40 ep/s, 7.8 t/s)
+[  150/500] saved=150 failed=0 transitions=2870 (0.40 ep/s, 7.7 t/s)
+[  175/500] saved=175 failed=0 transitions=3349 (0.40 ep/s, 7.7 t/s)
+[  200/500] saved=200 failed=0 transitions=3820 (0.40 ep/s, 7.7 t/s)
+[  225/500] saved=225 failed=0 transitions=4302 (0.40 ep/s, 7.7 t/s)
+[  250/500] saved=250 failed=0 transitions=4785 (0.40 ep/s, 7.7 t/s)
+[  275/500] saved=275 failed=0 transitions=5275 (0.40 ep/s, 7.7 t/s)
+[  300/500] saved=300 failed=0 transitions=5759 (0.40 ep/s, 7.7 t/s)
+[  325/500] saved=325 failed=0 transitions=6243 (0.40 ep/s, 7.7 t/s)
+[  350/500] saved=350 failed=0 transitions=6721 (0.40 ep/s, 7.7 t/s)
+[  375/500] saved=375 failed=0 transitions=7223 (0.40 ep/s, 7.7 t/s)
+[  400/500] saved=400 failed=0 transitions=7691 (0.40 ep/s, 7.7 t/s)
+[  425/500] saved=425 failed=0 transitions=8191 (0.40 ep/s, 7.7 t/s)
+[  450/500] saved=450 failed=0 transitions=8686 (0.40 ep/s, 7.7 t/s)
+[  475/500] saved=475 failed=0 transitions=9176 (0.40 ep/s, 7.7 t/s)
+[  500/500] saved=500 failed=0 transitions=9676 (0.40 ep/s, 7.7 t/s)
+
+Done. 500 episodes, 9676 transitions, 0 failures, 1252.5s total.
+pybullet build time: Oct 21 2025 17:40:50
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
