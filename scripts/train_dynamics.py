@@ -73,9 +73,9 @@ def main() -> None:
         with_proprio=args.with_proprio,
     )
     proprio_dim = dataset.proprio_dim
-    # Probe feature dim from one sample
-    z0, _, _ = dataset[0]
-    feature_dim = z0.shape[0]
+    # Probe feature dim from one sample (tuple length varies with --with-proprio)
+    probe = dataset[0]
+    feature_dim = probe[0].shape[0]
     print(f"dataset: {len(dataset)} transitions, feature_dim={feature_dim}")
 
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, drop_last=True)

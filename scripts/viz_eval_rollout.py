@@ -55,9 +55,12 @@ def main() -> None:
     encoder = PretrainedEncoder(args.backbone, dev)
     dyn = torch.load(args.dynamics_ckpt, map_location=dev, weights_only=False)
     chunk = dyn.get("chunk_size", 1)
-    inv = InverseDynamics(dyn["feature_dim"], 5, hidden=dyn["hidden"], chunk_size=chunk).to(dev)
+    proprio_dim = dyn.get("proprio_dim", 0)
+    inv = InverseDynamics(dyn["feature_dim"], 5, hidden=dyn["hidden"],
+                          chunk_size=chunk, proprio_dim=proprio_dim).to(dev)
     inv.load_state_dict(dyn["inverse"])
     inv.eval()
+    print(f"loaded inverse chunk_size={chunk} proprio_dim={proprio_dim}")
     sg = torch.load(args.subgoal_ckpt, map_location=dev, weights_only=False)
     subgoal = SubgoalGenerator(sg["feature_dim"], hidden=sg["hidden"]).to(dev)
     subgoal.load_state_dict(sg["subgoal"])
@@ -78,7 +81,7 @@ def main() -> None:
 
     # 2) reset + plan
     np.random.seed(args.seed)
-    env.reset()
+    obs = env.reset()
     z_goal = _encode(encoder, goal_frame, args.match_res)
     z_start = _encode(encoder, env.render("rgb_array"), args.match_res)
 
@@ -105,7 +108,11 @@ def main() -> None:
             z_now = _encode(encoder, frame, args.match_res)
             dist = torch.linalg.norm(z_now - w, dim=-1).item()
             dist_goal = torch.linalg.norm(z_now - z_goal, dim=-1).item()
-            action = inv(z_now, w)
+            p_now = None
+            if proprio_dim > 0 and isinstance(obs, dict) and "observation" in obs:
+                import numpy as _np
+                p_now = torch.from_numpy(_np.asarray(obs["observation"], dtype=_np.float32)).unsqueeze(0).to(dev)
+            action = inv(z_now, w, proprio=p_now) if proprio_dim > 0 else inv(z_now, w)
             if chunk > 1:
                 a_chunk = action.squeeze(0).detach().cpu().numpy()
                 a_step = a_chunk[0]
@@ -116,7 +123,7 @@ def main() -> None:
                 "frame": frame, "action": a.copy(),
                 "dist_wp": dist, "dist_goal": dist_goal, "wp_idx": wp_idx,
             })
-            _obs, _, done, info = env.step(a)
+            obs, _, done, info = env.step(a)
             total += 1
             if info.get("is_success"):
                 success = True

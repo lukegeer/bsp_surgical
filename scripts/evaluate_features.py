@@ -58,6 +58,8 @@ def _resolve_device(request: str) -> torch.device:
 
 
 _EVAL_CROP_BOX = None  # set by main()
+_EVAL_ACTION_SCALE = 1.0  # set by main()
+_EVAL_BINARY_JAW = False  # set by main()
 
 _EVAL_MATCH_RES: int | None = None  # set by main() to match training resolution
 
@@ -143,7 +145,9 @@ def _run_planner(
 
             # Execute the whole chunk (or until success / done / step budget)
             for a_step in chunk_np:
-                a = np.clip(a_step, -1.0, 1.0)
+                a = np.clip(a_step * _EVAL_ACTION_SCALE, -1.0, 1.0)
+                if _EVAL_BINARY_JAW:
+                    a[-1] = 1.0 if a[-1] > 0.0 else -1.0
                 current_obs, _r, done, info = env.step(a)
                 total += 1
                 steps_this_wp += 1
@@ -173,6 +177,13 @@ def main() -> None:
                         help="Resize live render to this resolution before DINOv2, matching "
                              "training. If training encoded from 128x128 stored images, set "
                              "--match-res 128 to avoid upscale/downscale feature mismatch.")
+    parser.add_argument("--action-scale", type=float, default=1.0,
+                        help="Multiply inverse model output by this factor before clipping. "
+                             "Counteracts MSE mean-regression that attenuates action magnitudes.")
+    parser.add_argument("--binary-jaw", action="store_true",
+                        help="Force the last action dim to {-1, +1} based on sign. Physical "
+                             "grippers are binary; the MSE-regressed continuous value often "
+                             "fails to close the jaw enough to grasp.")
     parser.add_argument("--num-subgoals", type=int, default=2)
     parser.add_argument("--device", default="auto")
     parser.add_argument(
@@ -212,9 +223,11 @@ def main() -> None:
 
     env = _make_env(args.task)
 
-    global _EVAL_CROP_BOX, _EVAL_MATCH_RES
+    global _EVAL_CROP_BOX, _EVAL_MATCH_RES, _EVAL_ACTION_SCALE, _EVAL_BINARY_JAW
     _EVAL_CROP_BOX = tuple(args.crop) if args.crop else None
     _EVAL_MATCH_RES = args.match_res
+    _EVAL_ACTION_SCALE = args.action_scale
+    _EVAL_BINARY_JAW = args.binary_jaw
     crop_box = _EVAL_CROP_BOX
 
     results: dict[str, dict] = {}

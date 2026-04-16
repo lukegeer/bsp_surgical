@@ -116,11 +116,14 @@ class FeatureTransitionDataset(Dataset):
                 chunk = np.concatenate([chunk, pad], axis=0)
             action_out = torch.from_numpy(chunk)
             k = real_end - offset
-        return (
+        items = [
             torch.from_numpy(feats[offset]),
             action_out,
             torch.from_numpy(feats[offset + k]),
-        )
+        ]
+        if self.with_proprio:
+            items.append(torch.from_numpy(self._proprios[ep_idx][offset]))
+        return tuple(items)
 
 
 class FeatureSubgoalDataset(Dataset):

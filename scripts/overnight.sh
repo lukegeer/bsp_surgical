@@ -5,11 +5,20 @@
 #
 # Run as:  caffeinate -i bash scripts/overnight.sh 2>&1 | tee overnight.log
 
-set -euo pipefail
 export KMP_DUPLICATE_LIB_OK=TRUE
 
-source /opt/homebrew/Caskroom/miniforge/base/etc/profile.d/conda.sh 2>/dev/null || source /opt/anaconda3/etc/profile.d/conda.sh
+# conda sourcing before set -e — these scripts use patterns set -e trips on
+if [ -f /opt/anaconda3/etc/profile.d/conda.sh ]; then
+    source /opt/anaconda3/etc/profile.d/conda.sh
+elif [ -f /opt/homebrew/Caskroom/miniforge/base/etc/profile.d/conda.sh ]; then
+    source /opt/homebrew/Caskroom/miniforge/base/etc/profile.d/conda.sh
+fi
 conda activate bsp
+
+set -u
+set -o pipefail
+# Don't `set -e` — we want the script to continue past any single stage failure
+# and keep producing data for downstream stages.
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
 

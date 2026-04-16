@@ -17,6 +17,13 @@ class Trajectory:
     # closes the gap to privileged-state methods without fine-tuning
     # the frozen visual backbone.
     proprioception: Optional[np.ndarray] = None
+    # Optional (T+1, H, W) int32 segmentation map (body/link IDs from
+    # PyBullet) and (T+1, H, W) float32 depth buffer. Privileged
+    # perception signals — valid to use in a simulator study where
+    # the perception stack would come from a real segmentation model
+    # on deployment.
+    segmentation: Optional[np.ndarray] = None
+    depth: Optional[np.ndarray] = None
 
     def __post_init__(self) -> None:
         if self.images.ndim != 4 or self.images.shape[-1] != 3:
@@ -37,6 +44,20 @@ class Trajectory:
             if len(self.proprioception) != len(self.images):
                 raise ValueError(
                     f"proprioception ({len(self.proprioception)}) must match images ({len(self.images)})"
+                )
+        if self.segmentation is not None:
+            if self.segmentation.ndim != 3:
+                raise ValueError(f"segmentation must be (T+1, H, W); got {self.segmentation.shape}")
+            if len(self.segmentation) != len(self.images):
+                raise ValueError(
+                    f"segmentation ({len(self.segmentation)}) must match images ({len(self.images)})"
+                )
+        if self.depth is not None:
+            if self.depth.ndim != 3:
+                raise ValueError(f"depth must be (T+1, H, W); got {self.depth.shape}")
+            if len(self.depth) != len(self.images):
+                raise ValueError(
+                    f"depth ({len(self.depth)}) must match images ({len(self.images)})"
                 )
 
     @property
