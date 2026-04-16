@@ -27,13 +27,21 @@ train_task() {
     local ckpt_dir="$2"
     local task_label="$3"
     log "=== TRAINING $task_label (data: $data_dir) ==="
-    python scripts/train_rgbd_dynamics.py --data-dir "$data_dir" \
-        --out-dir "$ckpt_dir/dynamics" \
-        --epochs 30 --batch-size 32 --chunk-size 5 --weight-decay 1e-4
-    python scripts/train_diffusion_subgoal.py --data-dir "$data_dir" \
-        --encoder-ckpt "$ckpt_dir/dynamics/rgbd_dynamics.pt" \
-        --out-dir "$ckpt_dir/subgoal" \
-        --epochs 80 --batch-size 64
+    if [ -f "$ckpt_dir/dynamics/rgbd_dynamics.pt" ]; then
+        log "  dynamics checkpoint exists, skipping"
+    else
+        python scripts/train_rgbd_dynamics.py --data-dir "$data_dir" \
+            --out-dir "$ckpt_dir/dynamics" \
+            --epochs 30 --batch-size 32 --chunk-size 5 --weight-decay 1e-4
+    fi
+    if [ -f "$ckpt_dir/subgoal/subgoal_diffusion.pt" ]; then
+        log "  subgoal diffusion checkpoint exists, skipping"
+    else
+        python scripts/train_diffusion_subgoal.py --data-dir "$data_dir" \
+            --encoder-ckpt "$ckpt_dir/dynamics/rgbd_dynamics.pt" \
+            --out-dir "$ckpt_dir/subgoal" \
+            --epochs 80 --batch-size 64
+    fi
     log "=== $task_label DONE ==="
 }
 
