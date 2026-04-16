@@ -1,0 +1,7 @@
+[13:11:19] waiting for 500 episodes in data/needle_reach_sd...
+[13:11:19]   -> 500 episodes ready in data/needle_reach_sd
+[13:11:19] === TRAINING NeedleReach (data: data/needle_reach_sd) ===
+[13:11:19]   dynamics checkpoint exists, skipping
+[13:11:19]   subgoal diffusion checkpoint exists, skipping
+[13:11:19] === NeedleReach DONE ===
+[13:11:19] waiting for 500 episodes in data/needle_pick_sd...

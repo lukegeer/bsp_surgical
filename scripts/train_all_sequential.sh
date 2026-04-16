@@ -23,21 +23,22 @@ wait_for_data() {
 }
 
 train_task() {
-    local data_dir="$1"
-    local ckpt_dir="$2"
-    local task_label="$3"
-    log "=== TRAINING $task_label (data: $data_dir) ==="
+    # Usage: train_task <ckpt_dir> <task_label> <data_dir1> [<data_dir2> ...]
+    local ckpt_dir="$1"; shift
+    local task_label="$1"; shift
+    local data_dirs=("$@")
+    log "=== TRAINING $task_label (data: ${data_dirs[*]}) ==="
     if [ -f "$ckpt_dir/dynamics/rgbd_dynamics.pt" ]; then
         log "  dynamics checkpoint exists, skipping"
     else
-        python scripts/train_rgbd_dynamics.py --data-dir "$data_dir" \
+        python scripts/train_rgbd_dynamics.py --data-dir "${data_dirs[@]}" \
             --out-dir "$ckpt_dir/dynamics" \
             --epochs 30 --batch-size 32 --chunk-size 5 --weight-decay 1e-4
     fi
     if [ -f "$ckpt_dir/subgoal/subgoal_diffusion.pt" ]; then
         log "  subgoal diffusion checkpoint exists, skipping"
     else
-        python scripts/train_diffusion_subgoal.py --data-dir "$data_dir" \
+        python scripts/train_diffusion_subgoal.py --data-dir "${data_dirs[@]}" \
             --encoder-ckpt "$ckpt_dir/dynamics/rgbd_dynamics.pt" \
             --out-dir "$ckpt_dir/subgoal" \
             --epochs 80 --batch-size 64
@@ -45,14 +46,31 @@ train_task() {
     log "=== $task_label DONE ==="
 }
 
-# Sequential: each task waits for its own data, trains, then next task starts
-wait_for_data data/needle_reach_sd    500
-train_task   data/needle_reach_sd    checkpoints/reach_sd   NeedleReach
+# Per-task sanity models (optional — each task trained on its own data)
+wait_for_data data/needle_reach_sd 500
+train_task checkpoints/reach_sd NeedleReach data/needle_reach_sd
 
-wait_for_data data/needle_pick_sd     500
-train_task   data/needle_pick_sd     checkpoints/pick_sd    NeedlePick
+wait_for_data data/needle_pick_sd 500
+train_task checkpoints/pick_sd NeedlePick data/needle_pick_sd
 
-wait_for_data data/gauze_retrieve_sd  500
-train_task   data/gauze_retrieve_sd  checkpoints/gauze_sd   GauzeRetrieve
+# M_simple: the compositional model — jointly trained on reach + pick. This is
+# the model we evaluate zero-shot on GauzeRetrieve in the compositional test.
+train_task checkpoints/simple_sd "M_simple (reach+pick JOINT)" \
+    data/needle_reach_sd data/needle_pick_sd
+
+# Anchor bank built from simple-task training states for rerank at eval
+if [ ! -f checkpoints/simple_sd/anchors.npz ]; then
+    log "=== BUILDING ANCHOR BANK (reach + pick training states) ==="
+    python scripts/build_anchor_bank.py \
+        --data-dirs data/needle_reach_sd data/needle_pick_sd \
+        --encoder-ckpt checkpoints/simple_sd/dynamics/rgbd_dynamics.pt \
+        --out checkpoints/simple_sd/anchors.npz
+fi
+
+# M_complex: upper bound — same architecture but trained directly on the target
+wait_for_data data/gauze_retrieve_sd 500
+train_task checkpoints/gauze_sd "M_complex (gauze directly)" data/gauze_retrieve_sd
 
 log "=== ALL TRAINING COMPLETE ==="
+log "    compositional: checkpoints/simple_sd"
+log "    upper bound:   checkpoints/gauze_sd"
