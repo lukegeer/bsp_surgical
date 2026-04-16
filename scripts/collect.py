@@ -43,6 +43,8 @@ def main() -> None:
     parser.add_argument("--crop", type=int, nargs=4, default=None, metavar=("Y1", "Y2", "X1", "X2"),
                         help="Crop rendered frame to [Y1:Y2, X1:X2] before resizing. "
                              "Simulates a zoomed surgical camera focused on the workspace.")
+    parser.add_argument("--record-segdepth", action="store_true",
+                        help="Also record PyBullet segmentation + depth maps per step.")
     args = parser.parse_args()
 
     np.random.seed(args.seed)
@@ -62,6 +64,7 @@ def main() -> None:
             task_name=args.task,
             episode_id=ep,
             crop_box=crop_box,
+            record_segdepth=args.record_segdepth,
         )
         if not traj.success and not args.keep_failures:
             failed += 1
