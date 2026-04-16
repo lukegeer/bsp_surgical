@@ -103,25 +103,31 @@ def _run_planner(
     z_now_init = _encode_frame(encoder, env.render("rgb_array"))
     waypoints = plan_fn(z_now_init)
     steps_per_wp = max(1, max_steps // len(waypoints))
+    chunk_size = getattr(inverse, "chunk_size", 1)
     total = 0
     for w in waypoints:
-        for _ in range(steps_per_wp):
-            if total >= max_steps:
-                return False, total
+        steps_this_wp = 0
+        while steps_this_wp < steps_per_wp and total < max_steps:
             z_now = _encode_frame(encoder, env.render("rgb_array"))
             if torch.linalg.norm(z_now - w, dim=-1).item() <= epsilon:
                 break
             action = inverse(z_now, w)
-            a = action.squeeze(0).detach().cpu().numpy()
-            # Oracle outputs continuous jaw in [-0.5, 0.5] — do not binarize.
-            # Just clip every dim to the valid env range.
-            a = np.clip(a, -1.0, 1.0)
-            _obs, _r, done, info = env.step(a)
-            total += 1
-            if info.get("is_success"):
-                return True, total
-            if done:
-                return False, total
+            if chunk_size > 1:
+                # shape (1, K, action_dim) -> (K, action_dim)
+                chunk_np = action.squeeze(0).detach().cpu().numpy()
+            else:
+                chunk_np = action.detach().cpu().numpy()[None]  # (1, action_dim)
+
+            # Execute the whole chunk (or until success / done / step budget)
+            for a_step in chunk_np:
+                a = np.clip(a_step, -1.0, 1.0)
+                _obs, _r, done, info = env.step(a)
+                total += 1
+                steps_this_wp += 1
+                if info.get("is_success"):
+                    return True, total
+                if done or total >= max_steps:
+                    return False, total
     return False, total
 
 
@@ -157,11 +163,14 @@ def main() -> None:
 
     # inverse dynamics
     dyn = torch.load(args.dynamics_ckpt, map_location=device, weights_only=False)
+    chunk_size = dyn.get("chunk_size", 1)
     inverse = InverseDynamics(
         latent_dim=dyn["feature_dim"], action_dim=5, hidden=dyn["hidden"],
+        chunk_size=chunk_size,
     ).to(device)
     inverse.load_state_dict(dyn["inverse"])
     inverse.eval()
+    print(f"inverse chunk_size={chunk_size}")
 
     # subgoal
     sg_ckpt = torch.load(args.subgoal_ckpt, map_location=device, weights_only=False)

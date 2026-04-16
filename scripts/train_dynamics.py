@@ -44,6 +44,9 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--hidden", type=int, default=1024)
+    parser.add_argument("--chunk-size", type=int, default=1,
+                        help="Inverse predicts this many consecutive actions per call. "
+                             "Seer uses 3, ACT uses 100. Essential on multi-phase tasks.")
     parser.add_argument("--max-step-jump", type=int, default=1,
                         help="Train inverse on (z_t, z_{t+k}) with k randomly in [1, K]. "
                              "K=1 is pure consecutive-frame training; larger K helps the "
@@ -61,7 +64,9 @@ def main() -> None:
     print(f"device: {device}")
 
     dataset = FeatureTransitionDataset(
-        args.data_dir, args.feature_dir, max_step_jump=args.max_step_jump,
+        args.data_dir, args.feature_dir,
+        max_step_jump=args.max_step_jump,
+        chunk_size=args.chunk_size,
     )
     # Probe feature dim from one sample
     z0, _, _ = dataset[0]
@@ -71,7 +76,10 @@ def main() -> None:
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, drop_last=True)
 
     fwd = ForwardDynamics(latent_dim=feature_dim, action_dim=5, hidden=args.hidden).to(device)
-    inv = InverseDynamics(latent_dim=feature_dim, action_dim=5, hidden=args.hidden).to(device)
+    inv = InverseDynamics(
+        latent_dim=feature_dim, action_dim=5, hidden=args.hidden,
+        chunk_size=args.chunk_size,
+    ).to(device)
 
     params = list(fwd.parameters()) + list(inv.parameters())
     print(f"trainable params: {sum(p.numel() for p in params):,}")
@@ -87,7 +95,9 @@ def main() -> None:
         n = 0
         for batch in loader:
             z_t, a, z_next = (t.to(device) for t in batch)
-            delta_z_pred = fwd(z_t, a)
+            # forward dynamics always operates on the first action of the chunk
+            a_first = a if a.dim() == 2 else a[:, 0]
+            delta_z_pred = fwd(z_t, a_first)
             z_next_pred = z_t + delta_z_pred
             loss_fwd = forward_dynamics_loss(z_next_pred, z_next)
             a_pred = inv(z_t, z_next)
@@ -122,6 +132,7 @@ def main() -> None:
         "inverse": inv.state_dict(),
         "feature_dim": feature_dim,
         "hidden": args.hidden,
+        "chunk_size": args.chunk_size,
         "args": vars(args) | {
             "data_dir": str(args.data_dir),
             "feature_dir": str(args.feature_dir),

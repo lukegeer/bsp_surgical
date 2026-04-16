@@ -54,6 +54,33 @@ def test_feature_transition_dataset_preserves_transition_identity(tmp_path):
     assert np.allclose(a.numpy(), actions[2])
 
 
+def test_feature_transition_dataset_chunk_size_returns_k_actions(tmp_path):
+    raw, feat, _features, actions = _write_pair(tmp_path, 0, num_transitions=6, feature_dim=8)
+
+    ds = FeatureTransitionDataset(raw, feat, chunk_size=3)
+    z_t, chunk, z_next = ds[1]
+
+    assert chunk.shape == (3, 5)
+    # actions[1], actions[2], actions[3] should be the chunk
+    import numpy as np
+    assert np.allclose(chunk.numpy(), actions[1:4])
+
+
+def test_feature_transition_dataset_chunk_pads_with_final_action_at_episode_end(tmp_path):
+    raw, feat, _, actions = _write_pair(tmp_path, 0, num_transitions=3, feature_dim=8)
+
+    ds = FeatureTransitionDataset(raw, feat, chunk_size=5)
+    # Last possible offset=2; chunk of 5 from there needs 3 pads of actions[-1]
+    z_t, chunk, _ = ds[2]
+
+    import numpy as np
+    assert chunk.shape == (5, 5)
+    assert np.allclose(chunk[0].numpy(), actions[2])
+    # padded tail should all be the final action
+    assert np.allclose(chunk[1].numpy(), actions[-1])
+    assert np.allclose(chunk[-1].numpy(), actions[-1])
+
+
 def test_feature_transition_dataset_errors_if_features_missing(tmp_path):
     rng = np.random.default_rng(0)
     raw_dir = tmp_path / "raw"

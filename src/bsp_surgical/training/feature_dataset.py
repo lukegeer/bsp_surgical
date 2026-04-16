@@ -21,20 +21,31 @@ def _load_features(feature_path: Path) -> np.ndarray:
 
 
 class FeatureTransitionDataset(Dataset):
-    """For each transition t, yields (z_t, a_t, z_{t+k}) where k is 1 by
-    default (consecutive frames) or randomly sampled in [1, max_step_jump]
-    when max_step_jump > 1.
+    """For each transition t, yields (z_t, actions, z_{t+k}) where:
+      - k is 1 by default or randomly sampled in [1, max_step_jump]
+      - actions is a chunk of `chunk_size` consecutive actions starting
+        at t: [a_t, a_{t+1}, ..., a_{t+chunk_size-1}]. If chunk_size=1
+        (default) the returned shape is (action_dim,) for backwards
+        compatibility; otherwise (chunk_size, action_dim).
 
-    The multi-step variant teaches the inverse model to take action a_t
-    when the *target* is k steps ahead — not just one step ahead. This
-    closes the train/test gap: at eval time, waypoints are far from the
-    current state, and a k=1-only inverse model overshoots and oscillates.
-    The action label stays a_t (the correct *next* action)."""
+    Chunked actions let the inverse model learn a multi-step motion
+    primitive (Seer-style). Essential on tasks with discrete phase
+    transitions (grasp) where a memoryless single-step policy averages
+    pre/post-transition actions and never commits to either."""
 
-    def __init__(self, raw_dir: Path, feature_dir: Path, max_step_jump: int = 1):
+    def __init__(
+        self,
+        raw_dir: Path,
+        feature_dir: Path,
+        max_step_jump: int = 1,
+        chunk_size: int = 1,
+    ):
         if max_step_jump < 1:
             raise ValueError(f"max_step_jump must be >= 1, got {max_step_jump}")
+        if chunk_size < 1:
+            raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
         self.max_step_jump = max_step_jump
+        self.chunk_size = chunk_size
         raw_dir = Path(raw_dir)
         feature_dir = Path(feature_dir)
         raw_paths = sorted(raw_dir.glob("ep_*.npz"))
@@ -73,14 +84,27 @@ class FeatureTransitionDataset(Dataset):
         offset = idx - self._episode_starts[ep_idx]
         feats = self._features[ep_idx]
         actions = self._actions[ep_idx]
-        T = len(actions)  # num transitions
+        T = len(actions)
+
+        # chunk of `chunk_size` consecutive actions, padded by repeating the
+        # final action if we'd run past the end of the episode.
+        if self.chunk_size == 1:
+            action_out = torch.from_numpy(actions[offset])
+        else:
+            end = min(offset + self.chunk_size, T)
+            chunk = actions[offset:end]
+            if len(chunk) < self.chunk_size:
+                pad = np.tile(chunk[-1:], (self.chunk_size - len(chunk), 1))
+                chunk = np.concatenate([chunk, pad], axis=0)
+            action_out = torch.from_numpy(chunk)
+
         if self.max_step_jump == 1 or T - offset <= 1:
             k = 1
         else:
             k = int(np.random.randint(1, min(self.max_step_jump, T - offset) + 1))
         return (
             torch.from_numpy(feats[offset]),
-            torch.from_numpy(actions[offset]),
+            action_out,
             torch.from_numpy(feats[offset + k]),
         )
 

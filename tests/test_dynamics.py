@@ -35,6 +35,23 @@ def test_inverse_dynamics_shapes():
     assert action.shape == (4, 5)
 
 
+def test_inverse_dynamics_chunked_output_shape():
+    inv = InverseDynamics(latent_dim=128, action_dim=5, chunk_size=4)
+    z_t = torch.randn(3, 128)
+    z_next = torch.randn(3, 128)
+
+    actions = inv(z_t, z_next)
+
+    assert actions.shape == (3, 4, 5)
+
+
+def test_inverse_dynamics_chunk_size_1_stays_flat():
+    """Backwards compat: chunk_size=1 returns (B, action_dim)."""
+    inv = InverseDynamics(latent_dim=128, action_dim=5, chunk_size=1)
+    out = inv(torch.randn(3, 128), torch.randn(3, 128))
+    assert out.shape == (3, 5)
+
+
 def test_inverse_dynamics_jaw_dim_is_separable():
     """Last action dim is gripper jaw (binary); model should expose it."""
     inv = InverseDynamics(latent_dim=128, action_dim=5, jaw_dim=1)

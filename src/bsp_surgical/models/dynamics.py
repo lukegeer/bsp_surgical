@@ -25,7 +25,18 @@ class ForwardDynamics(nn.Module):
 
 
 class InverseDynamics(nn.Module):
-    """g(z_t, z_{t+1}) -> a_t."""
+    """g(z_t, z_target) -> a_t, or with chunk_size > 1 a chunk of K actions.
+
+    When chunk_size=1 (default), the model predicts a single action — the
+    classic inverse dynamics. When chunk_size=K>1, the model predicts K
+    actions in one forward pass (Seer-style action chunking). Chunked
+    output shape is (B, K, action_dim); single-step shape is (B, action_dim)
+    for backward compatibility.
+
+    Action chunking helps on tasks with discrete phase transitions
+    (grasp, insertion) because the model can schedule the whole sequence
+    as a unit instead of deciding action-by-action from a memoryless state.
+    """
 
     def __init__(
         self,
@@ -33,11 +44,18 @@ class InverseDynamics(nn.Module):
         action_dim: int = 5,
         hidden: int = 256,
         jaw_dim: int = 1,
+        chunk_size: int = 1,
     ):
         super().__init__()
+        if chunk_size < 1:
+            raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
         self.action_dim = action_dim
         self.jaw_dim = jaw_dim
-        self.net = _mlp(2 * latent_dim, hidden, action_dim, depth=3)
+        self.chunk_size = chunk_size
+        self.net = _mlp(2 * latent_dim, hidden, chunk_size * action_dim, depth=3)
 
     def forward(self, z_t: torch.Tensor, z_next: torch.Tensor) -> torch.Tensor:
-        return self.net(torch.cat([z_t, z_next], dim=-1))
+        out = self.net(torch.cat([z_t, z_next], dim=-1))
+        if self.chunk_size == 1:
+            return out
+        return out.view(-1, self.chunk_size, self.action_dim)
