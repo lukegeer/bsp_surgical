@@ -14,20 +14,27 @@ from bsp_surgical.models.rgbd_encoder import seg_to_onehot
 class RGBDSegDataset(Dataset):
     """Yields (rgb_t, seg_t, depth_t, action_chunk, rgb_next, seg_next, depth_next).
 
-    RGB normalized to [0,1]; seg one-hot (K channels); depth as-is in [0,1]."""
+    RGB normalized to [0,1]; seg one-hot (K channels); depth as-is in [0,1].
+    Accepts a single directory or a list of directories (multi-task
+    training — episodes from all provided dirs are interleaved)."""
 
     def __init__(
         self,
-        raw_dir: Path,
+        raw_dir: Path | list[Path],
         chunk_size: int = 5,
         num_seg_channels: int = 8,
     ):
-        raw_dir = Path(raw_dir)
+        if isinstance(raw_dir, (list, tuple)):
+            raw_dirs = [Path(p) for p in raw_dir]
+        else:
+            raw_dirs = [Path(raw_dir)]
         self.chunk_size = chunk_size
         self.num_seg_channels = num_seg_channels
-        raw_paths = sorted(raw_dir.glob("ep_*.npz"))
+        raw_paths = []
+        for d in raw_dirs:
+            raw_paths.extend(sorted(d.glob("ep_*.npz")))
         if not raw_paths:
-            raise FileNotFoundError(f"no episodes at {raw_dir}")
+            raise FileNotFoundError(f"no episodes at {raw_dirs}")
 
         self._trajs = []
         self._episode_starts: list[int] = []
@@ -75,20 +82,27 @@ class RGBDSegDataset(Dataset):
 class RGBDSegSubgoalDataset(Dataset):
     """For subgoal diffusion: yields random (z_start, z_mid, z_end) triples
     per episode via random-window sampling. Encoding happens at train
-    time against a frozen encoder checkpoint."""
+    time against a frozen encoder checkpoint.
+
+    Accepts a single directory or a list (multi-task subgoal training)."""
 
     def __init__(
         self,
-        raw_dir: Path,
+        raw_dir: Path | list[Path],
         num_seg_channels: int = 8,
         min_span: int = 4,
     ):
-        raw_dir = Path(raw_dir)
+        if isinstance(raw_dir, (list, tuple)):
+            raw_dirs = [Path(p) for p in raw_dir]
+        else:
+            raw_dirs = [Path(raw_dir)]
         self.num_seg_channels = num_seg_channels
         self.min_span = min_span
-        paths = sorted(raw_dir.glob("ep_*.npz"))
+        paths = []
+        for d in raw_dirs:
+            paths.extend(sorted(d.glob("ep_*.npz")))
         if not paths:
-            raise FileNotFoundError(f"no episodes at {raw_dir}")
+            raise FileNotFoundError(f"no episodes at {raw_dirs}")
         self._trajs = []
         for p in paths:
             t = load_trajectory(p)

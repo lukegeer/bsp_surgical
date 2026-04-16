@@ -21,7 +21,8 @@ def _device(req: str) -> torch.device:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data-dir", type=Path, required=True)
+    parser.add_argument("--data-dir", type=Path, required=True, nargs="+",
+                        help="One or more training data dirs; episodes unioned.")
     parser.add_argument("--encoder-ckpt", type=Path, required=True,
                         help="Path to rgbd_dynamics.pt checkpoint")
     parser.add_argument("--out-dir", type=Path, required=True)
@@ -55,11 +56,12 @@ def main() -> None:
     feature_dim = ckpt["feature_dim"]
     print(f"loaded encoder feature_dim={feature_dim}")
 
+    dirs = args.data_dir if isinstance(args.data_dir, list) else [args.data_dir]
     dataset = RGBDSegSubgoalDataset(
-        args.data_dir, num_seg_channels=ckpt["num_seg_channels"], min_span=args.min_span,
+        dirs, num_seg_channels=ckpt["num_seg_channels"], min_span=args.min_span,
     )
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
-    print(f"dataset: {len(dataset)} episodes")
+    print(f"dataset: {len(dataset)} episodes across {[str(d) for d in dirs]}")
 
     diffusion = SubgoalDiffusion(
         latent_dim=feature_dim, hidden=args.hidden,

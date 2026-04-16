@@ -31,7 +31,8 @@ def _device(req: str) -> torch.device:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data-dir", type=Path, required=True)
+    parser.add_argument("--data-dir", type=Path, required=True, nargs="+",
+                        help="One or more training data dirs; episodes are unioned.")
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--batch-size", type=int, default=32)
@@ -51,8 +52,10 @@ def main() -> None:
     device = _device(args.device)
     print(f"device: {device}")
 
-    dataset = RGBDSegDataset(args.data_dir, chunk_size=args.chunk_size,
+    dirs = args.data_dir if isinstance(args.data_dir, list) else [args.data_dir]
+    dataset = RGBDSegDataset(dirs, chunk_size=args.chunk_size,
                              num_seg_channels=args.num_seg_channels)
+    print(f"data dirs: {[str(d) for d in dirs]}")
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True,
                         num_workers=0, drop_last=True)
     print(f"dataset: {len(dataset)} transitions")
@@ -107,7 +110,7 @@ def main() -> None:
         "num_seg_channels": args.num_seg_channels,
         "chunk_size": args.chunk_size,
         "inverse_hidden": args.inverse_hidden,
-        "args": vars(args) | {"data_dir": str(args.data_dir), "out_dir": str(args.out_dir)},
+        "args": vars(args) | {"data_dir": [str(d) for d in dirs], "out_dir": str(args.out_dir)},
     }, args.out_dir / "rgbd_dynamics.pt")
     with open(args.out_dir / "history.json", "w") as f:
         json.dump(history, f, indent=2)
