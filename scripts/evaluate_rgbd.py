@@ -13,10 +13,9 @@ import numpy as np
 import torch
 import pybullet as p
 
-from bsp_surgical.models.rgbd_encoder import RGBDSegEncoder
+from bsp_surgical.models.rgbd_encoder import RGBDSegEncoder, seg_to_onehot
 from bsp_surgical.models.dynamics import InverseDynamics
 from bsp_surgical.models.subgoal_diffusion import SubgoalDiffusion
-from bsp_surgical.models.segdepth_encoder import seg_to_onehot
 
 
 TASK_REGISTRY = {

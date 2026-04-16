@@ -8,7 +8,7 @@ import torch
 from torch.utils.data import Dataset
 
 from bsp_surgical.data.io import load_trajectory
-from bsp_surgical.models.segdepth_encoder import seg_to_onehot
+from bsp_surgical.models.rgbd_encoder import seg_to_onehot
 
 
 class RGBDSegDataset(Dataset):

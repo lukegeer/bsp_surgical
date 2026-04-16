@@ -1,8 +1,24 @@
 """Small CNN over (RGB + seg one-hot + depth) that preserves spatial
 information. No DINOv2 — the segmentation masks already provide
 pixel-perfect semantic localization, and depth gives 3D structure."""
+import numpy as np
 import torch
 import torch.nn as nn
+
+
+def seg_to_onehot(seg_map: np.ndarray, num_channels: int = 8) -> np.ndarray:
+    """Dense-rank segmentation IDs by frequency and one-hot encode to
+    at most num_channels. seg_map: (H, W) int32 from PyBullet (lower 24
+    bits = body id). Most common surface gets channel 0 (usually
+    background). Extra IDs beyond num_channels are dropped."""
+    body_ids = (seg_map & 0xFFFFFF).astype(np.int32)
+    ids, counts = np.unique(body_ids, return_counts=True)
+    order = np.argsort(-counts)
+    top_ids = ids[order][:num_channels]
+    out = np.zeros((num_channels, *seg_map.shape), dtype=np.float32)
+    for ch, bid in enumerate(top_ids):
+        out[ch] = (body_ids == bid).astype(np.float32)
+    return out
 
 
 class RGBDSegEncoder(nn.Module):
