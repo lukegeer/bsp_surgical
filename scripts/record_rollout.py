@@ -1,15 +1,17 @@
-"""Record an evaluation rollout as an MP4 you can actually watch.
+"""Record an evaluation rollout (new RGBDSeg + diffusion pipeline) as
+an animated GIF you can actually watch.
 
-Draws each frame at full resolution with step number, planner name,
-current action, latent distance to goal, and success flag overlaid.
+Each frame is the live env render, overlaid with step number, current
+action, latent distance to goal, success flag. PNG frames are also
+dumped alongside so you can flip through them in an image viewer.
 
 Example:
     python scripts/record_rollout.py \\
         --task NeedlePick \\
-        --dynamics-ckpt checkpoints/pick_p/dynamics/dynamics.pt \\
-        --subgoal-ckpt checkpoints/pick_p/subgoal/subgoal.pt \\
-        --planner none --match-res 128 --binary-jaw --max-steps 60 \\
-        --out viz/pick_p_rollout.mp4
+        --dynamics-ckpt checkpoints/pick_sd/dynamics/rgbd_dynamics.pt \\
+        --diffusion-ckpt checkpoints/pick_sd/subgoal/subgoal_diffusion.pt \\
+        --planner backward --binary-jaw --max-steps 80 \\
+        --out viz/pick_sd_rollout.gif
 """
 import argparse
 import importlib
@@ -17,14 +19,12 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import pybullet as p
 import torch
 
-from bsp_surgical.models.perception import PretrainedEncoder
+from bsp_surgical.models.rgbd_encoder import RGBDSegEncoder, seg_to_onehot
 from bsp_surgical.models.dynamics import InverseDynamics
-from bsp_surgical.models.subgoal import SubgoalGenerator
-from bsp_surgical.inference.planner import (
-    plan_subgoals, plan_subgoals_lerp, plan_no_subgoals,
-)
+from bsp_surgical.models.subgoal_diffusion import SubgoalDiffusion
 
 
 TASK_REGISTRY = {
@@ -34,58 +34,87 @@ TASK_REGISTRY = {
 }
 
 
-def _encode(encoder, frame, match_res=None):
-    if match_res is not None:
-        frame = cv2.resize(frame, (match_res, match_res), interpolation=cv2.INTER_AREA)
-    t = torch.from_numpy(frame).permute(2, 0, 1).float().unsqueeze(0) / 255.0
-    return encoder(t)
+def _render_rgbd(env, resolution: int):
+    rgb = env.render("rgb_array")
+    h, w = rgb.shape[:2]
+    _, _, _, depth, seg = p.getCameraImage(
+        width=w, height=h,
+        viewMatrix=env._view_matrix, projectionMatrix=env._proj_matrix,
+        flags=p.ER_SEGMENTATION_MASK_OBJECT_AND_LINKINDEX,
+        renderer=p.ER_TINY_RENDERER,
+    )
+    depth = np.asarray(depth).reshape(h, w).astype(np.float32)
+    seg = np.asarray(seg).reshape(h, w).astype(np.int32)
+    rgb_r = cv2.resize(rgb, (resolution, resolution), interpolation=cv2.INTER_AREA)
+    seg_r = cv2.resize(seg, (resolution, resolution), interpolation=cv2.INTER_NEAREST)
+    depth_r = cv2.resize(depth, (resolution, resolution), interpolation=cv2.INTER_AREA)
+    return rgb, rgb_r, seg_r, depth_r
 
 
-def _overlay(frame, lines, y0=20, color=(255, 255, 255), bg=(0, 0, 0)):
+def _encode(encoder, rgb, seg, depth, device, num_seg):
+    rgb_t = torch.from_numpy(rgb).permute(2, 0, 1).float().unsqueeze(0).to(device) / 255.0
+    seg_t = torch.from_numpy(seg_to_onehot(seg, num_seg)).unsqueeze(0).to(device)
+    depth_t = torch.from_numpy(depth).unsqueeze(0).unsqueeze(0).to(device)
+    return encoder(rgb_t, seg_t, depth_t)
+
+
+def _overlay(frame, lines, color=(255, 255, 255), bg=(0, 0, 0)):
     img = frame.copy()
+    y0 = 24
     for i, line in enumerate(lines):
-        y = y0 + i * 20
-        cv2.rectangle(img, (8, y - 14), (8 + len(line) * 8, y + 6), bg, -1)
-        cv2.putText(img, line, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1, cv2.LINE_AA)
+        y = y0 + i * 22
+        cv2.rectangle(img, (8, y - 16), (8 + len(line) * 9, y + 4), bg, -1)
+        cv2.putText(img, line, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
     return img
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--task", choices=sorted(TASK_REGISTRY), default="NeedlePick")
-    parser.add_argument("--backbone", default="dinov2-base")
+    parser.add_argument("--task", choices=sorted(TASK_REGISTRY), required=True)
     parser.add_argument("--dynamics-ckpt", type=Path, required=True)
-    parser.add_argument("--subgoal-ckpt", type=Path, required=True)
-    parser.add_argument("--planner", choices=["backward", "lerp", "none"], default="none")
+    parser.add_argument("--diffusion-ckpt", type=Path, required=False)
+    parser.add_argument("--planner", choices=["none", "backward"], default="none")
     parser.add_argument("--max-steps", type=int, default=60)
     parser.add_argument("--num-subgoals", type=int, default=2)
-    parser.add_argument("--match-res", type=int, default=None)
+    parser.add_argument("--inference-steps", type=int, default=20)
     parser.add_argument("--action-scale", type=float, default=1.0)
     parser.add_argument("--binary-jaw", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--fps", type=int, default=10)
+    parser.add_argument("--fps", type=int, default=8)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
 
     dev = "mps"
-    encoder = PretrainedEncoder(args.backbone, dev)
     dyn = torch.load(args.dynamics_ckpt, map_location=dev, weights_only=False)
-    chunk = dyn.get("chunk_size", 1)
-    proprio_dim = dyn.get("proprio_dim", 0)
+    num_seg = dyn["num_seg_channels"]
+    encoder = RGBDSegEncoder(
+        num_seg_channels=num_seg, resolution=128, feature_dim=dyn["feature_dim"],
+    ).to(dev)
+    encoder.load_state_dict(dyn["encoder"])
+    encoder.eval()
     inv = InverseDynamics(
-        dyn["feature_dim"], 5, hidden=dyn["hidden"],
-        chunk_size=chunk, proprio_dim=proprio_dim,
-    ).to(dev).eval()
+        latent_dim=dyn["feature_dim"], action_dim=5,
+        hidden=dyn["inverse_hidden"], chunk_size=dyn["chunk_size"],
+    ).to(dev)
     inv.load_state_dict(dyn["inverse"])
+    inv.eval()
+    chunk = dyn["chunk_size"]
 
-    sg_ckpt = torch.load(args.subgoal_ckpt, map_location=dev, weights_only=False)
-    subgoal = SubgoalGenerator(sg_ckpt["feature_dim"], hidden=sg_ckpt["hidden"]).to(dev).eval()
-    subgoal.load_state_dict(sg_ckpt["subgoal"])
+    diffusion = None
+    if args.planner == "backward":
+        assert args.diffusion_ckpt is not None, "--diffusion-ckpt required"
+        dc = torch.load(args.diffusion_ckpt, map_location=dev, weights_only=False)
+        diffusion = SubgoalDiffusion(
+            latent_dim=dc["feature_dim"], hidden=dc["hidden"],
+            num_timesteps=dc["num_timesteps"],
+        ).to(dev)
+        diffusion.load_state_dict(dc["diffusion"])
+        diffusion.eval()
 
     mod, cls = TASK_REGISTRY[args.task]
     env = getattr(importlib.import_module(mod), cls)(render_mode=None)
 
-    # 1) Oracle goal capture
+    # 1) oracle goal
     np.random.seed(args.seed)
     obs = env.reset()
     for _ in range(150):
@@ -93,102 +122,103 @@ def main() -> None:
         obs, _, done, info = env.step(a)
         if info.get("is_success") or done:
             break
-    goal_frame = env.render("rgb_array")
+    _, goal_rgb, goal_seg, goal_depth = _render_rgbd(env, 128)
 
-    # 2) Reset + plan
+    # 2) reset + plan
     np.random.seed(args.seed)
     obs = env.reset()
-    z_goal = _encode(encoder, goal_frame, args.match_res)
-    z_start = _encode(encoder, env.render("rgb_array"), args.match_res)
+    z_goal = _encode(encoder, goal_rgb, goal_seg, goal_depth, dev, num_seg)
+    full0, rgb0, seg0, depth0 = _render_rgbd(env, 128)
+    z_start = _encode(encoder, rgb0, seg0, depth0, dev, num_seg)
 
     if args.planner == "backward":
-        waypoints = plan_subgoals(subgoal, z_start, z_goal, args.num_subgoals)
-    elif args.planner == "lerp":
-        waypoints = plan_subgoals_lerp(z_start, z_goal, args.num_subgoals)
+        waypoints = diffusion.backward_bisect(
+            z_start, z_goal, num_subgoals=args.num_subgoals,
+            num_inference_steps=args.inference_steps,
+        )
     else:
-        waypoints = plan_no_subgoals(z_start, z_goal)
+        waypoints = [z_goal]
 
-    # 3) Record rollout frames
+    # Opening title
     frames_out = []
+    title = _overlay(full0, [
+        f"Task: {args.task}",
+        f"Planner: {args.planner}  binary_jaw={args.binary_jaw}",
+        f"Max steps: {args.max_steps}  seed={args.seed}",
+        f"Waypoints: {len(waypoints)}",
+    ])
+    for _ in range(args.fps):
+        frames_out.append(title)
+
+    # Execute
     steps_per_wp = max(1, args.max_steps // len(waypoints))
     total = 0
     success = False
-    final_jaw = 0.0
-    final_action = np.zeros(5)
-    final_d = 0.0
-
-    # Opening title frame
-    start_rendered = env.render("rgb_array")
-    title = _overlay(start_rendered, [
-        f"Task: {args.task}",
-        f"Planner: {args.planner}   match_res={args.match_res}   binary_jaw={args.binary_jaw}",
-        f"Max steps: {args.max_steps}   seed={args.seed}",
-        f"Waypoints: {len(waypoints)} (incl. goal)",
-    ], y0=30)
-    for _ in range(args.fps):  # hold 1 sec
-        frames_out.append(title)
-
     for wp_idx, w in enumerate(waypoints):
-        for _ in range(steps_per_wp):
-            if total >= args.max_steps:
-                break
-            frame = env.render("rgb_array")
-            z_now = _encode(encoder, frame, args.match_res)
-            d = torch.linalg.norm(z_now - w, dim=-1).item()
+        steps_this = 0
+        while steps_this < steps_per_wp and total < args.max_steps:
+            full, rgb, seg, depth = _render_rgbd(env, 128)
+            z_now = _encode(encoder, rgb, seg, depth, dev, num_seg)
+            d_wp = torch.linalg.norm(z_now - w, dim=-1).item()
             d_goal = torch.linalg.norm(z_now - z_goal, dim=-1).item()
-
-            p_now = None
-            if proprio_dim > 0 and isinstance(obs, dict) and "observation" in obs:
-                p_now = torch.from_numpy(np.asarray(obs["observation"], dtype=np.float32)).unsqueeze(0).to(dev)
-            action = inv(z_now, w, proprio=p_now) if proprio_dim > 0 else inv(z_now, w)
+            with torch.no_grad():
+                action = inv(z_now, w)
             if chunk > 1:
-                a_chunk = action.squeeze(0).detach().cpu().numpy()
-                a_step = a_chunk[0]
+                chunk_np = action.squeeze(0).cpu().numpy()
             else:
-                a_step = action.squeeze(0).detach().cpu().numpy()
-            a = np.clip(a_step * args.action_scale, -1.0, 1.0)
+                chunk_np = action.cpu().numpy().reshape(1, -1)
+            a_first = chunk_np[0]
+            a_display = np.clip(a_first * args.action_scale, -1.0, 1.0)
             if args.binary_jaw:
-                a[-1] = 1.0 if a[-1] > 0.0 else -1.0
-
-            annotated = _overlay(frame, [
+                a_display[-1] = 1.0 if a_display[-1] > 0 else -1.0
+            frames_out.append(_overlay(full, [
                 f"step {total}   wp {wp_idx+1}/{len(waypoints)}",
-                f"d_wp={d:.2f}  d_goal={d_goal:.2f}",
-                f"a=[{a[0]:+.2f},{a[1]:+.2f},{a[2]:+.2f},{a[3]:+.2f}]",
-                f"jaw={a[4]:+.2f}   succ={bool(info.get('is_success', 0))}",
-            ], y0=30)
-            frames_out.append(annotated)
-
-            obs, _, done, info = env.step(a)
-            total += 1
-            final_jaw = a[-1]
-            final_action = a.copy()
-            final_d = d_goal
-            if info.get("is_success"):
-                success = True
+                f"d_wp={d_wp:.2f}  d_goal={d_goal:.2f}",
+                f"a=[{a_display[0]:+.2f},{a_display[1]:+.2f},{a_display[2]:+.2f},{a_display[3]:+.2f}]",
+                f"jaw={a_display[4]:+.2f}",
+            ]))
+            for a_step in chunk_np:
+                a = np.clip(a_step * args.action_scale, -1.0, 1.0)
+                if args.binary_jaw:
+                    a[-1] = 1.0 if a[-1] > 0 else -1.0
+                obs, _, done, info = env.step(a)
+                total += 1
+                steps_this += 1
+                if info.get("is_success"):
+                    success = True; break
+                if done or total >= args.max_steps:
+                    break
+            if success or total >= args.max_steps:
                 break
         if success:
             break
 
-    # Final closing frames
-    final_rendered = env.render("rgb_array")
-    end_title = _overlay(final_rendered, [
+    # Final title
+    full_final, *_ = _render_rgbd(env, 128)
+    end = _overlay(full_final, [
         f"FINAL  step {total}",
         f"Success: {success}",
-        f"Last action: {np.round(final_action, 2).tolist()}",
-        f"Last d_goal: {final_d:.2f}",
-    ], y0=30, color=(0, 255, 0) if success else (255, 0, 0))
-    for _ in range(args.fps * 2):  # hold 2 sec
-        frames_out.append(end_title)
+    ], color=(0, 255, 0) if success else (255, 0, 0))
+    for _ in range(args.fps * 2):
+        frames_out.append(end)
 
-    # Write MP4
+    # Write GIF (reliable) + PNG frames (fallback)
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    H, W = frames_out[0].shape[:2]
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    writer = cv2.VideoWriter(str(args.out), fourcc, args.fps, (W, H))
-    for f in frames_out:
-        writer.write(cv2.cvtColor(f, cv2.COLOR_RGB2BGR))
-    writer.release()
+    import imageio.v2 as imageio
+    if str(args.out).lower().endswith(".gif"):
+        imageio.mimsave(str(args.out), frames_out, fps=args.fps)
+    else:
+        imageio.mimsave(
+            str(args.out), frames_out, fps=args.fps,
+            codec="libx264", pixelformat="yuv420p", quality=8,
+        )
+    png_dir = args.out.with_suffix("")
+    png_dir.mkdir(exist_ok=True)
+    for i, f in enumerate(frames_out):
+        imageio.imwrite(str(png_dir / f"frame_{i:04d}.png"), f)
+
     print(f"saved {args.out}  ({len(frames_out)} frames, {len(frames_out)/args.fps:.1f}s at {args.fps} fps)")
+    print(f"  + PNG frames in {png_dir}/")
     print(f"success={success} total_env_steps={total}")
 
 
