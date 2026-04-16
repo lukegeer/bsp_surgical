@@ -35,3 +35,19 @@ Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst othe
 Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
 Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
 See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+[  175/500] saved=13 failed=0 transitions=533 (0.85 ep/s, 2.6 t/s)
+[  200/500] saved=38 failed=0 transitions=1558 (0.32 ep/s, 2.5 t/s)
+[  225/500] saved=63 failed=0 transitions=2583 (0.24 ep/s, 2.7 t/s)
+[  250/500] saved=88 failed=0 transitions=3608 (0.22 ep/s, 3.2 t/s)
+[  275/500] saved=113 failed=0 transitions=4633 (0.21 ep/s, 3.5 t/s)
+[  300/500] saved=138 failed=0 transitions=5658 (0.20 ep/s, 3.7 t/s)
+[  325/500] saved=163 failed=0 transitions=6683 (0.19 ep/s, 3.9 t/s)
+[  350/500] saved=188 failed=0 transitions=7708 (0.18 ep/s, 4.1 t/s)
+[  375/500] saved=213 failed=0 transitions=8733 (0.18 ep/s, 4.2 t/s)
+[  400/500] saved=238 failed=0 transitions=9758 (0.17 ep/s, 4.3 t/s)
+[  425/500] saved=263 failed=0 transitions=10783 (0.17 ep/s, 4.4 t/s)
+[  450/500] saved=288 failed=0 transitions=11808 (0.17 ep/s, 4.4 t/s)
+[  475/500] saved=313 failed=0 transitions=12833 (0.17 ep/s, 4.5 t/s)
+[  500/500] saved=338 failed=0 transitions=13858 (0.16 ep/s, 4.5 t/s)
+
+Done. 338 episodes, 13858 transitions, 0 failures, 3050.2s total.

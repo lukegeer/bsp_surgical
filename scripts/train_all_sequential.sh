@@ -38,10 +38,12 @@ train_task() {
     if [ -f "$ckpt_dir/subgoal/subgoal_diffusion.pt" ]; then
         log "  subgoal diffusion checkpoint exists, skipping"
     else
+        # 300 epochs — earlier 80 was undertrained (loss plateaued at 0.71,
+        # should be <0.3). Diffusion needs many more gradient steps.
         python scripts/train_diffusion_subgoal.py --data-dir "${data_dirs[@]}" \
             --encoder-ckpt "$ckpt_dir/dynamics/rgbd_dynamics.pt" \
             --out-dir "$ckpt_dir/subgoal" \
-            --epochs 80 --batch-size 64
+            --epochs 300 --batch-size 64
     fi
     log "=== $task_label DONE ==="
 }
