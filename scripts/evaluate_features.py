@@ -58,10 +58,18 @@ def _resolve_device(request: str) -> torch.device:
 
 _EVAL_CROP_BOX = None  # set by main()
 
+_EVAL_MATCH_RES: int | None = None  # set by main() to match training resolution
+
 def _encode_frame(encoder: PretrainedEncoder, frame: np.ndarray) -> torch.Tensor:
     if _EVAL_CROP_BOX is not None:
         y1, y2, x1, x2 = _EVAL_CROP_BOX
         frame = frame[y1:y2, x1:x2]
+    # Match training resolution: if training encoded from 128×128 stored
+    # images, resize the live render to 128×128 first. Otherwise DINOv2
+    # sees different interpolation artifacts (upscale vs downscale).
+    if _EVAL_MATCH_RES is not None:
+        import cv2
+        frame = cv2.resize(frame, (_EVAL_MATCH_RES, _EVAL_MATCH_RES), interpolation=cv2.INTER_AREA)
     t = torch.from_numpy(frame).permute(2, 0, 1).float().unsqueeze(0) / 255.0
     return encoder(t)
 
@@ -153,6 +161,10 @@ def main() -> None:
                         help="L2 latent distance to declare a waypoint reached")
     parser.add_argument("--crop", type=int, nargs=4, default=None, metavar=("Y1", "Y2", "X1", "X2"),
                         help="Crop rendered frame to [Y1:Y2, X1:X2] before encoding.")
+    parser.add_argument("--match-res", type=int, default=None,
+                        help="Resize live render to this resolution before DINOv2, matching "
+                             "training. If training encoded from 128x128 stored images, set "
+                             "--match-res 128 to avoid upscale/downscale feature mismatch.")
     parser.add_argument("--num-subgoals", type=int, default=2)
     parser.add_argument("--device", default="auto")
     parser.add_argument(
@@ -191,8 +203,9 @@ def main() -> None:
 
     env = _make_env(args.task)
 
-    global _EVAL_CROP_BOX
+    global _EVAL_CROP_BOX, _EVAL_MATCH_RES
     _EVAL_CROP_BOX = tuple(args.crop) if args.crop else None
+    _EVAL_MATCH_RES = args.match_res
     crop_box = _EVAL_CROP_BOX
 
     results: dict[str, dict] = {}
