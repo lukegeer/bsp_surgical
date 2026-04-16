@@ -39,6 +39,9 @@ def main() -> None:
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument("--keep-failures", action="store_true",
                         help="By default, episodes where the oracle failed are discarded.")
+    parser.add_argument("--crop", type=int, nargs=4, default=None, metavar=("Y1", "Y2", "X1", "X2"),
+                        help="Crop rendered frame to [Y1:Y2, X1:X2] before resizing. "
+                             "Simulates a zoomed surgical camera focused on the workspace.")
     args = parser.parse_args()
 
     np.random.seed(args.seed)
@@ -49,6 +52,7 @@ def main() -> None:
     saved, failed, total_t = 0, 0, 0
     t_start = time.time()
     for ep in range(args.num_episodes):
+        crop_box = tuple(args.crop) if args.crop else None
         traj = collect_episode(
             env,
             lambda obs: env.get_oracle_action(obs),
@@ -56,6 +60,7 @@ def main() -> None:
             resolution=args.resolution,
             task_name=args.task,
             episode_id=ep,
+            crop_box=crop_box,
         )
         if not traj.success and not args.keep_failures:
             failed += 1

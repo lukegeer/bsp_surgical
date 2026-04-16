@@ -56,12 +56,17 @@ def _resolve_device(request: str) -> torch.device:
     return torch.device(request)
 
 
+_EVAL_CROP_BOX = None  # set by main()
+
 def _encode_frame(encoder: PretrainedEncoder, frame: np.ndarray) -> torch.Tensor:
+    if _EVAL_CROP_BOX is not None:
+        y1, y2, x1, x2 = _EVAL_CROP_BOX
+        frame = frame[y1:y2, x1:x2]
     t = torch.from_numpy(frame).permute(2, 0, 1).float().unsqueeze(0) / 255.0
     return encoder(t)
 
 
-def _capture_goal_image(env, max_oracle_steps: int) -> np.ndarray:
+def _capture_goal_image(env, max_oracle_steps: int, crop_box=None) -> np.ndarray:
     obs = env.reset()
     final = env.render("rgb_array")
     for _ in range(max_oracle_steps):
@@ -70,6 +75,9 @@ def _capture_goal_image(env, max_oracle_steps: int) -> np.ndarray:
         final = env.render("rgb_array")
         if info.get("is_success") or done:
             break
+    if crop_box is not None:
+        y1, y2, x1, x2 = crop_box
+        final = final[y1:y2, x1:x2]
     return final
 
 
@@ -144,6 +152,8 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--epsilon", type=float, default=0.5,
                         help="L2 latent distance to declare a waypoint reached")
+    parser.add_argument("--crop", type=int, nargs=4, default=None, metavar=("Y1", "Y2", "X1", "X2"),
+                        help="Crop rendered frame to [Y1:Y2, X1:X2] before encoding.")
     parser.add_argument("--num-subgoals", type=int, default=2)
     parser.add_argument("--device", default="auto")
     parser.add_argument(
@@ -182,6 +192,10 @@ def main() -> None:
 
     env = _make_env(args.task)
 
+    global _EVAL_CROP_BOX
+    _EVAL_CROP_BOX = tuple(args.crop) if args.crop else None
+    crop_box = _EVAL_CROP_BOX
+
     results: dict[str, dict] = {}
     for planner_name in args.planners:
         print(f"\n=== planner: {planner_name} ===")
@@ -189,7 +203,7 @@ def main() -> None:
         t0 = time.time()
         for i in range(args.num_episodes):
             np.random.seed(args.seed + i)
-            goal_frame = _capture_goal_image(env, args.max_oracle_steps)
+            goal_frame = _capture_goal_image(env, args.max_oracle_steps, crop_box=crop_box)
 
             np.random.seed(args.seed + i)
             env.reset()
