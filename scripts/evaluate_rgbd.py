@@ -69,6 +69,13 @@ def main() -> None:
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument("--num-subgoals", type=int, default=2)
     parser.add_argument("--inference-steps", type=int, default=20)
+    parser.add_argument("--anchors", type=Path, default=None,
+                        help="Anchor bank (npz) for subgoal reranking. When provided, "
+                             "diffusion samples num_candidates per bisection level and "
+                             "picks the candidate with highest cosine similarity to any "
+                             "anchor — forces in-distribution subgoals for compositional transfer.")
+    parser.add_argument("--num-candidates", type=int, default=8,
+                        help="Number of diffusion samples to rerank (only with --anchors).")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--action-scale", type=float, default=1.0)
     parser.add_argument("--binary-jaw", action="store_true")
@@ -111,6 +118,13 @@ def main() -> None:
         diffusion.eval()
         print(f"loaded diffusion num_timesteps={diff_ckpt['num_timesteps']}")
 
+    # Optional anchor bank for subgoal reranking
+    anchors_tensor = None
+    if args.anchors is not None:
+        with np.load(args.anchors) as data:
+            anchors_tensor = torch.from_numpy(data["anchors"]).to(device)
+        print(f"loaded {anchors_tensor.shape[0]} anchors ({anchors_tensor.shape[1]}-d) for rerank")
+
     # Env
     mod, cls = TASK_REGISTRY[args.task]
     env = getattr(importlib.import_module(mod), cls)(render_mode=None)
@@ -139,10 +153,19 @@ def main() -> None:
             z_start = _encode(encoder, rgb0, seg0, depth0, device, num_seg)
 
             if planner_name == "backward":
-                waypoints = diffusion.backward_bisect(
-                    z_start, z_goal, num_subgoals=args.num_subgoals,
-                    num_inference_steps=args.inference_steps,
-                )
+                if args.anchors is not None:
+                    waypoints = diffusion.backward_bisect_with_rerank(
+                        z_start, z_goal,
+                        anchors=anchors_tensor,
+                        num_subgoals=args.num_subgoals,
+                        num_candidates=args.num_candidates,
+                        num_inference_steps=args.inference_steps,
+                    )
+                else:
+                    waypoints = diffusion.backward_bisect(
+                        z_start, z_goal, num_subgoals=args.num_subgoals,
+                        num_inference_steps=args.inference_steps,
+                    )
             else:  # none
                 waypoints = [z_goal]
 

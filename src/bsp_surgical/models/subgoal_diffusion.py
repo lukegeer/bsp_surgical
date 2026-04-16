@@ -181,3 +181,41 @@ class SubgoalDiffusion(nn.Module):
             subgoals.append(sg)
             target = sg
         return list(reversed(subgoals)) + [z_goal]
+
+    @torch.no_grad()
+    def backward_bisect_with_rerank(
+        self,
+        z_now: torch.Tensor,
+        z_goal: torch.Tensor,
+        anchors: torch.Tensor,
+        num_subgoals: int = 2,
+        num_candidates: int = 8,
+        num_inference_steps: int = 20,
+    ) -> list[torch.Tensor]:
+        """Compositional rerank: at each bisection level, sample
+        num_candidates subgoals from the diffusion model and pick the
+        one with highest cosine similarity to any anchor.
+
+        `anchors`: (N, latent_dim) tensor of in-distribution training
+        states. Reranking forces subgoals to look like states the
+        inverse model was actually trained to reach — crucial for
+        transferring to unseen tasks via composition.
+        """
+        import torch.nn.functional as F
+
+        anchors_norm = F.normalize(anchors, dim=-1)
+        subgoals = []
+        target = z_goal
+        for _ in range(num_subgoals):
+            # Sample num_candidates subgoals in one batched forward
+            z_now_b = z_now.expand(num_candidates, -1)
+            target_b = target.expand(num_candidates, -1)
+            cands = self.sample(z_now_b, target_b, num_inference_steps=num_inference_steps)
+            # Cosine similarity each candidate vs every anchor → max over anchors
+            cands_norm = F.normalize(cands, dim=-1)
+            sim = cands_norm @ anchors_norm.T              # (num_candidates, N)
+            best_scores, _ = sim.max(dim=1)                 # (num_candidates,)
+            best = cands[best_scores.argmax()].unsqueeze(0)
+            subgoals.append(best)
+            target = best
+        return list(reversed(subgoals)) + [z_goal]
